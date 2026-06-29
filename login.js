@@ -228,8 +228,5 @@ function parseKey(key) {
   const cookies = await context.cookies();
   saveCookies(cookies);
 
-  const cookies = await context.cookies();
-  saveCookies(cookies);
-
   await browser.close();
 })();
