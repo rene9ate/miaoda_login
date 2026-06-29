@@ -74,7 +74,7 @@ function parseKey(key) {
   if (cached) {
     await context.addCookies(cached);
     console.log('发现缓存 Cookie，尝试直接访问');
-    await page.goto(loginUrl, { waitUntil: 'commit', timeout: 90000 }).catch(() => {});
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     try {
       await page.waitForURL(targetPattern, { timeout: 15000 });
       console.log('Cookie 有效，登录成功');
@@ -87,85 +87,77 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(e => {
-    console.warn('domcontentloaded 超时:', e.message?.slice(0, 80));
-  });
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
 
-  const found = await page.waitForSelector('#uc-common-account', { timeout: 60000, state: 'attached' }).catch(() => null);
-  if (!found) {
-    const title = await page.title().catch(() => 'N/A');
-    const url = page.url();
-    const html = await page.evaluate(() => document.body?.innerHTML?.slice(0, 300)).catch(() => 'N/A');
-    console.error('未找到表单 - 标题:', title, 'URL:', url, 'HTML:', html);
-    process.exit(1);
-  }
+  await page.waitForSelector('#uc-common-account', { timeout: 120000, state: 'attached' });
 
-  const hasForm = await page.evaluate(() => !!document.getElementById('uc-common-account'));
-  if (!hasForm) {
+  const formReady = await page.evaluate(() => !!document.getElementById('uc-common-account'));
+  if (!formReady) {
     console.error('未找到登录表单');
     process.exit(1);
   }
 
-  await page.evaluate(({ username, password }) => {
+  console.log('填写表单...');
+  const fillResult = await page.evaluate(({ username, password }) => {
     const userEl = document.getElementById('uc-common-account');
     const passEl = document.getElementById('ucsl-password-edit') || document.getElementById('uc-common-password');
-    if (userEl) {
-      userEl.value = username;
-      userEl.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    if (passEl) {
-      passEl.value = password;
-      passEl.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }, creds);
 
-  await page.evaluate(() => {
+    const errors = [];
+    if (!userEl) errors.push('用户名框不存在');
+    else {
+      userEl.value = username;
+      userEl.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      userEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    if (!passEl) errors.push('密码框不存在');
+    else {
+      passEl.value = password;
+      passEl.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      passEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
     document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
       if (!cb.checked) {
         cb.checked = true;
         cb.dispatchEvent(new Event('change', { bubbles: true }));
       }
     });
-  });
 
-  const submitted = await page.evaluate(() => {
+    return errors.length ? errors.join('; ') : 'ok';
+  }, creds);
+
+  console.log('表单填写结果:', fillResult);
+
+  await page.waitForTimeout(1000);
+
+  const btnClicked = await page.evaluate(() => {
     const btn = document.querySelector('button[type="submit"]') ||
                 document.querySelector('#ucsl-submit') ||
-                document.querySelector('.submit-btn') ||
                 document.querySelector('[class*="submit"]') ||
                 document.querySelector('[class*="login"]');
-    if (btn) {
-      btn.click();
-      return true;
-    }
+    if (btn) { btn.click(); return true; }
     return false;
   });
 
-  if (!submitted) {
+  if (!btnClicked) {
     console.error('未找到登录按钮');
     process.exit(1);
   }
 
-  console.log('已提交登录，等待跳转...');
+  console.log('已点击登录，等待跳转...');
+
+  await page.waitForTimeout(5000);
 
   try {
-    await page.waitForURL(targetPattern, { timeout: 30000 });
+    await page.waitForURL(targetPattern, { timeout: 60000 });
     console.log('登录成功');
     const cookies = await context.cookies();
     saveCookies(cookies);
   } catch {
-    const currentUrl = page.url();
-    const errText = await page.evaluate(() => {
-      const err = document.querySelector('.error-message, .errmsg, [class*="error"], .tip');
-      return err?.textContent?.trim() || document.querySelector('.captcha') ? '需要验证码' : null;
-    }).catch(() => null);
-    const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => null);
-    console.error('当前 URL:', currentUrl);
-    if (errText) {
-      console.error('登录失败:', errText);
-    } else if (pageText) {
-      console.error('页面内容:', pageText);
-    }
+    console.error('当前 URL:', page.url());
+    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A');
+    console.error('页面内容:', text);
     process.exit(1);
   }
 
