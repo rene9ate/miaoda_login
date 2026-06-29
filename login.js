@@ -194,13 +194,44 @@ function parseKey(key) {
   console.log('表单已就绪');
 
   console.log('填写表单...');
-  await page.evaluate(({ username, password }) => {
-    const u = document.getElementById('uc-common-account');
-    if (u) { u.value = username; u.dispatchEvent(new Event('input', { bubbles: true })); }
+  const fillResult = await page.evaluate(({ username, password }) => {
+    // 优先 TANGRAM 老版（原用户脚本用的）
+    let u = document.getElementById('TANGRAM__PSP_4__userName');
+    let p = document.getElementById('TANGRAM__PSP_4__password');
+    let formType = 'tangram';
 
-    const p = document.getElementById('ucsl-password-edit') || document.getElementById('uc-common-password');
-    if (p) { p.value = password; p.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (!u || !p) {
+      // 回退：新版 BCE 表单
+      u = document.getElementById('uc-common-account');
+      p = document.getElementById('ucsl-password-edit') || document.getElementById('uc-common-password');
+      formType = 'bce';
+    }
+
+    if (!u || !p) {
+      return '未找到用户名/密码输入框';
+    }
+
+    u.value = username;
+    u.dispatchEvent(new Event('input', { bubbles: true }));
+    u.dispatchEvent(new Event('change', { bubbles: true }));
+
+    p.value = password;
+    p.dispatchEvent(new Event('input', { bubbles: true }));
+    p.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // 勾选同意复选框
+    const cbs = document.querySelectorAll('input[type="checkbox"]');
+    cbs.forEach(cb => {
+      if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+
+    return 'ok: ' + formType;
   }, creds);
+  console.log('填写结果:', fillResult);
+  if (!fillResult.startsWith('ok')) {
+    console.error('填写失败:', fillResult);
+    process.exit(1);
+  }
   await page.waitForTimeout(500);
 
   const agreeText = await page.evaluate(() => {
