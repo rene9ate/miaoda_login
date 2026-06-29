@@ -87,12 +87,10 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(e => {
-    console.warn('goto 超时:', e.message?.slice(0, 100));
-  });
+  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
 
   let ready = false;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 120; i++) {
     const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
     if (text.includes('百度账号') || text.includes('账号登录')) { ready = true; break; }
     await page.waitForTimeout(2000);
