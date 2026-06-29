@@ -104,25 +104,63 @@ function parseKey(key) {
     console.error('表单未加载');
     process.exit(1);
   }
-  console.log('表单已就绪');
+  console.log('表单已就绪，切换至账号登录...');
 
-  // 填写表单
+  // 先点击"账号登录" tab
+  await page.evaluate(() => {
+    const tab = document.querySelector('#TANGRAM__PSP_3__accountTab, a[data-tab="account"], .pass-tab-account');
+    if (tab) tab.click();
+    // 另一种方式：直接触发 TANGRAM 的切换
+    const switchLink = document.querySelector('a:has-text("账号登录"), span:has-text("账号登录")');
+    if (switchLink && switchLink.closest) switchLink.click();
+  });
+  await page.waitForTimeout(1500);
+
+  // 填写表单（优先 Playwright 原生，不可见时回退到 evaluate）
   console.log('填写表单...');
-  await page.fill('#TANGRAM__PSP_3__userName', creds.username);
-  await page.fill('#TANGRAM__PSP_3__password', creds.password);
+  const userNameEl = page.locator('#TANGRAM__PSP_3__userName');
+  if (await userNameEl.isVisible().catch(() => false)) {
+    await userNameEl.fill(creds.username);
+  } else {
+    await page.evaluate((u) => {
+      const el = document.getElementById('TANGRAM__PSP_3__userName');
+      if (el) { el.value = u; el.dispatchEvent(new Event('input', { bubbles: true })); }
+    }, creds.username);
+  }
+  const passEl = page.locator('#TANGRAM__PSP_3__password');
+  if (await passEl.isVisible().catch(() => false)) {
+    await passEl.fill(creds.password);
+  } else {
+    await page.evaluate((p) => {
+      const el = document.getElementById('TANGRAM__PSP_3__password');
+      if (el) { el.value = p; el.dispatchEvent(new Event('input', { bubbles: true })); }
+    }, creds.password);
+  }
   // 勾选"记住我"
-  const cb = page.locator('#TANGRAM__PSP_3__memberPass');
-  if (await cb.isVisible()) await cb.check();
+  await page.evaluate(() => {
+    const cb = document.getElementById('TANGRAM__PSP_3__memberPass');
+    if (cb && !cb.checked) {
+      cb.checked = true;
+      cb.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
   console.log('表单已填写');
 
   await page.waitForTimeout(500);
 
-  // Playwright 原生点击，模拟真实用户操作
+  // Playwright 原生点击（先尝试点击，失败则 evaluate + Enter）
   console.log('提交登录...');
-  await page.click('#TANGRAM__PSP_3__submit', { force: true, timeout: 10000 }).catch(async () => {
-    // 如果点不到，尝试回车
-    await page.press('#TANGRAM__PSP_3__password', 'Enter');
-  });
+  const submitBtn = page.locator('#TANGRAM__PSP_3__submit');
+  try {
+    await submitBtn.waitFor({ state: 'visible', timeout: 3000 });
+    await submitBtn.click({ timeout: 10000 });
+  } catch {
+    await page.evaluate(() => {
+      const btn = document.getElementById('TANGRAM__PSP_3__submit');
+      if (btn) btn.click();
+    });
+    await page.keyboard.press('Enter');
+  }
 
   // 等待登录完成——检测 URL 离开 passport/login
   console.log('等待登录完成...');
