@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
   issues: write
 
 jobs:
@@ -55,6 +56,19 @@ jobs:
         with:
           path: cache
           key: cookies-${{ runner.os }}-${{ github.run_id }}
+
+      - name: 清理旧 cookie 缓存
+        if: steps.login.outputs.cookies_changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_KEY: cookies-Linux-${{ github.run_id }}
+        run: |
+          gh cache list --key "cookies-Linux-" --json key,id --jq '
+            .[] | select(.key != env.KEEP_KEY) | .id
+          ' | while read id; do
+            [ -n "$id" ] && gh cache delete "$id" --confirm
+          done
 
       - name: 登录失败上报 Issue
         if: steps.login.outcome != 'success'
