@@ -108,11 +108,18 @@ function parseKey(key) {
 
   // 先点击"账号登录" tab
   await page.evaluate(() => {
-    const tab = document.querySelector('#TANGRAM__PSP_3__accountTab, a[data-tab="account"], .pass-tab-account');
-    if (tab) tab.click();
-    // 另一种方式：直接触发 TANGRAM 的切换
-    const switchLink = document.querySelector('a:has-text("账号登录"), span:has-text("账号登录")');
-    if (switchLink && switchLink.closest) switchLink.click();
+    const text = '账号登录';
+    // 用 XPath 查找文本节点
+    const el = document.evaluate(
+      `//*[text()="${text}"]`,
+      document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+    ).singleNodeValue;
+    if (el) { el.click(); return; }
+    // 回退：在所有 a/span/div 中匹配文本
+    const all = document.querySelectorAll('a, span, div, li');
+    for (const e of all) {
+      if (e.textContent?.trim() === text) { e.click(); return; }
+    }
   });
   await page.waitForTimeout(1500);
 
