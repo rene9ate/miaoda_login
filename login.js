@@ -186,21 +186,34 @@ function parseKey(key) {
 
   console.log('等待跳转...');
 
-  try {
-    await page.waitForURL(targetPattern, { timeout: 60000 });
-    console.log('登录成功，当前 URL:', page.url());
-  } catch {
-    const stillThere = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
-    if (stillThere) {
-      const err = await page.evaluate(() => document.querySelector('.pass-error')?.textContent?.trim()).catch(() => null);
-      console.error('登录失败:', err || '仍在登录页面，可能密码/账号错误');
-    } else {
-      console.error('当前 URL:', page.url());
-      const text = await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A');
-      console.error('页面内容:', text);
+  console.log('等待登录完成...');
+
+  let loginDone = false;
+  let currentUrl = '';
+  for (let i = 0; i < 30; i++) {
+    currentUrl = page.url();
+    if (!currentUrl.includes('passport.baidu.com') && !currentUrl.includes('login')) {
+      loginDone = true;
+      break;
     }
+    const formGone = await page.evaluate(() => !document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
+    if (formGone) {
+      loginDone = true;
+      break;
+    }
+    await page.waitForTimeout(2000);
+  }
+
+  if (loginDone) {
+    console.log('登录成功，当前 URL:', currentUrl || page.url());
+  } else {
+    const err = await page.evaluate(() => document.querySelector('.pass-error')?.textContent?.trim()).catch(() => null);
+    console.error('登录失败:', err || '超时或密码错误');
     process.exit(1);
   }
+
+  const cookies = await context.cookies();
+  saveCookies(cookies);
 
   const cookies = await context.cookies();
   saveCookies(cookies);
