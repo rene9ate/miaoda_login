@@ -91,26 +91,25 @@ function parseKey(key) {
     console.warn('goto 超时:', e.message?.slice(0, 100));
   });
 
-  let found = false;
+  let ready = false;
   for (let i = 0; i < 60; i++) {
-    found = await page.evaluate(() => !!document.getElementById('uc-common-account')).catch(() => false);
-    if (found) break;
+    const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+    if (text.includes('百度账号') || text.includes('账号登录')) { ready = true; break; }
     await page.waitForTimeout(2000);
   }
 
-  if (!found) {
-    const title = await page.title().catch(() => 'N/A');
+  if (!ready) {
     const url = page.url();
     const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
-    console.error('表单未加载 - 标题:', title);
-    console.error('URL:', url);
-    console.error('页面:', text);
+    console.error('页面未渲染 - URL:', url, '内容:', text);
     process.exit(1);
   }
 
+  console.log('页面已渲染，点击账号登录标签...');
+
   const tabClicked = await page.evaluate(() => {
     const el = [...document.querySelectorAll('div, span, a, li, label, button')].find(e =>
-      e.textContent?.trim() === '账号登录' && e.offsetParent !== null
+      /^账号登录$/.test(e.textContent?.trim()) && e.offsetParent !== null
     );
     if (el) { el.click(); return true; }
     const el2 = [...document.querySelectorAll('div, span, a, li, label, button')].find(e =>
@@ -119,10 +118,23 @@ function parseKey(key) {
     if (el2) { el2.click(); return true; }
     return false;
   });
-  if (tabClicked) console.log('已点击"账号登录"标签');
-  else console.warn('未找到"账号登录"标签，尝试继续');
+  console.log(tabClicked ? '已点击账号登录标签' : '未找到账号登录标签');
 
-  await page.waitForTimeout(2000);
+  let found = false;
+  for (let i = 0; i < 30; i++) {
+    found = await page.evaluate(() => !!document.getElementById('uc-common-account')).catch(() => false);
+    if (found) break;
+    await page.waitForTimeout(2000);
+  }
+
+  if (!found) {
+    const title = await page.title().catch(() => 'N/A');
+    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
+    console.error('表单未加载 - 标题:', title, '内容:', text);
+    process.exit(1);
+  }
+
+  console.log('表单已就绪');
 
   console.log('填写表单...');
   await page.evaluate(({ username, password }) => {
