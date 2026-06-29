@@ -60,15 +60,13 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
-  page.on('console', msg => console.log('[页面]', msg.text()));
-  page.on('pageerror', err => console.error('[页面错误]', err.message));
+  page.on('console', msg => { if (msg.type() === 'error') console.log('[页面错误]', msg.text()); });
+  page.on('pageerror', err => console.error('[页面异常]', err.message));
 
   await page.route('**/*', route => {
     const url = route.request().url();
-    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url)) {
-      route.abort();
-    } else if (/jquery/i.test(url)) {
-      route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.$=function(s){var e=typeof s==="string"?document.querySelectorAll(s):s||[];return Object.assign(Array.from(e),{val:function(v){if(v===undefined)return this[0]?.value;this.forEach(function(x){x.value=v;});return this;},on:function(e,f){this.forEach(function(x){x.addEventListener(e,f);});return this;},click:function(f){if(f)this.on("click",f);else this[0]?.click();return this;},attr:function(n,v){if(v===undefined)return this[0]?.getAttribute(n);this.forEach(function(x){x.setAttribute(n,v);});return this;},each:function(f){for(var i=0;i<this.length;i++)f.call(this[i],i,this[i]);return this;},find:function(s){var r=[];this.forEach(function(x){r.push.apply(r,x.querySelectorAll(s));});return window.$(r);},trigger:function(e){this.forEach(function(x){x.dispatchEvent(new Event(e,{bubbles:true}));});return this;}});};window.jQuery=window.$;$.ajax=function(o){try{return fetch(o.url,{method:o.type||"GET",body:o.data}).then(function(r){return r.json();});}catch(e){}};' });
+    if (/jquery/i.test(url)) {
+      route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.$=function(s){var e=typeof s==="string"?document.querySelectorAll(s):s||[];return Object.assign(Array.from(e),{val:function(v){if(v===undefined)return this[0]?.value;this.forEach(function(x){x.value=v;});return this;},on:function(e,f){this.forEach(function(x){x.addEventListener(e,f);});return this;},click:function(f){if(f)this.on("click",f);else this[0]?.click();return this;},attr:function(n,v){if(v===undefined)return this[0]?.getAttribute(n);this.forEach(function(x){x.setAttribute(n,v);});return this;},each:function(f){for(var i=0;i<this.length;i++)f.call(this[i],i,this[i]);return this;},find:function(s){var r=[];this.forEach(function(x){r.push.apply(r,x.querySelectorAll(s));});return window.$(r);},trigger:function(e){this.forEach(function(x){x.dispatchEvent(new Event(e,{bubbles:true}));});return this;}});};window.jQuery=window.$;' });
     } else {
       route.continue();
     }
@@ -91,22 +89,32 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
+  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
 
   console.log('等待页面加载...');
   let ready = false;
-  for (let i = 0; i < 120; i++) {
-    const info = await page.evaluate(() => {
-      const body = document.body;
-      if (!body) return { ok: false, htmlLen: 0, text: 'no body' };
-      const text = body.innerText || '';
-      const htmlLen = body.innerHTML?.length || 0;
-      const hasTangram = !!document.getElementById('TANGRAM__PSP_4__userName');
-      const hasBceForm = !!document.getElementById('uc-common-account');
-      return { ok: hasTangram || hasBceForm, htmlLen, textLen: text.length, sample: text.slice(0, 100) };
-    }).catch(() => ({ ok: false, htmlLen: -1, text: 'evaluate failed' }));
-    if (info.ok) { ready = true; break; }
-    if (i % 10 === 0) console.log(`等待... body=${info.htmlLen}B text=${info.textLen}B sample="${info.sample}" i=${i + 1}/120`);
+  for (let i = 0; i < 60; i++) {
+    const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
+    const hasLink = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('a, span, div, label')].find(e =>
+        e.textContent?.trim() === '用户名登录' && e.offsetParent !== null
+      );
+      return !!el;
+    }).catch(() => false);
+    if (hasForm) { ready = true; break; }
+    if (hasLink) {
+      await page.evaluate(() => {
+        const el = [...document.querySelectorAll('a, span, div, label')].find(e =>
+          e.textContent?.trim() === '用户名登录' && e.offsetParent !== null
+        );
+        if (el) el.click();
+      });
+      await page.waitForTimeout(3000);
+      const formNow = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
+      if (formNow) { ready = true; break; }
+    }
+    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 100)).catch(() => '');
+    if (i % 10 === 0) console.log(`等待... text="${text}" i=${i + 1}/60`);
     await page.waitForTimeout(2000);
   }
   console.log();
@@ -183,8 +191,6 @@ function parseKey(key) {
   console.log('提交结果:', submitResult);
 
   await page.waitForTimeout(3000);
-
-  console.log('等待跳转...');
 
   console.log('等待登录完成...');
 
