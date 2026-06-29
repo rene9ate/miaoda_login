@@ -60,7 +60,6 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
-  page.on('console', msg => { if (msg.type() === 'error') console.log('[页面错误]', msg.text()); });
   page.on('pageerror', err => console.error('[页面异常]', err.message));
 
   await page.route('**/*', route => {
@@ -94,27 +93,31 @@ function parseKey(key) {
   console.log('等待页面加载...');
   let ready = false;
   for (let i = 0; i < 60; i++) {
-    const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
-    const hasLink = await page.evaluate(() => {
-      const el = [...document.querySelectorAll('a, span, div, label')].find(e =>
-        e.textContent?.trim() === '用户名登录' && e.offsetParent !== null
-      );
-      return !!el;
-    }).catch(() => false);
-    if (hasForm) { ready = true; break; }
-    if (hasLink) {
+    const state = await page.evaluate(() => {
+      const hasForm = !!document.getElementById('TANGRAM__PSP_4__userName');
+      const all = [...document.querySelectorAll('*')].filter(e => e.offsetParent !== null && e.textContent?.trim());
+      const linkEl = all.find(e => /用户名登录/.test(e.textContent?.trim()));
+      const linkTexts = all.filter(e => /用户/.test(e.textContent)).map(e => e.textContent?.trim()?.slice(0, 30));
+      return { hasForm, hasLink: !!linkEl, linkTexts: linkTexts.slice(0, 10) };
+    }).catch(() => ({ hasForm: false, hasLink: false, linkTexts: [] }));
+    
+    if (state.hasForm) { ready = true; break; }
+    
+    if (state.hasLink) {
+      console.log('找到用户名登录，点击...');
       await page.evaluate(() => {
-        const el = [...document.querySelectorAll('a, span, div, label')].find(e =>
-          e.textContent?.trim() === '用户名登录' && e.offsetParent !== null
+        const el = [...document.querySelectorAll('*')].find(e =>
+          /用户名登录/.test(e.textContent?.trim()) && e.offsetParent !== null
         );
-        if (el) el.click();
+        if (el) { el.click(); return true; }
+        return false;
       });
       await page.waitForTimeout(3000);
       const formNow = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
       if (formNow) { ready = true; break; }
     }
-    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 100)).catch(() => '');
-    if (i % 10 === 0) console.log(`等待... text="${text}" i=${i + 1}/60`);
+    
+    if (i % 10 === 0) console.log(`等待... hasLink=${state.hasLink} linkTexts=${JSON.stringify(state.linkTexts)} i=${i + 1}/60`);
     await page.waitForTimeout(2000);
   }
   console.log();
