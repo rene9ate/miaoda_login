@@ -50,8 +50,21 @@ function parseKey(key) {
   const loginUrl = 'https://login.bce.baidu.com/?redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
   const targetPattern = '**/console.bce.baidu.com/**';
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--no-first-run',
+      '--no-default-browser-check',
+    ],
+  });
+  const context = await browser.newContext({
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    ignoreHTTPSErrors: true,
+  });
   const page = await context.newPage();
 
   // 尝试复用缓存的 Cookie
@@ -75,7 +88,14 @@ function parseKey(key) {
   // Cookie 无效或不存在，执行完整登录
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => console.warn('⏳ 页面加载超时，继续等待关键元素'));
 
-  await page.waitForSelector('#TANGRAM__PSP_4__userName', { timeout: 10000 });
+  const selectorExists = await page.waitForSelector('#TANGRAM__PSP_4__userName', { timeout: 15000 }).catch(() => null);
+  if (!selectorExists) {
+    const title = await page.title().catch(() => 'N/A');
+    const body = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
+    console.error('❌ 未找到登录表单，页面标题:', title);
+    console.error('页面内容片段:', body);
+    process.exit(1);
+  }
 
   await page.fill('#TANGRAM__PSP_4__userName', creds.username);
   await page.fill('#TANGRAM__PSP_4__password', creds.password);
