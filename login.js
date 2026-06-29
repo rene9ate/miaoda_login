@@ -135,7 +135,6 @@ function parseKey(key) {
     const username = creds.username;
     const password = creds.password;
     const loginType = '1';
-    const logLoginType = 'loginLog';
     const detect = '1';
 
     const body = new URLSearchParams({
