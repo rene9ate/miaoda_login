@@ -60,6 +60,16 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
+  await page.route('**/*', route => {
+    const url = route.request().url();
+    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
+        /(hm\.baidu|analytics)/i.test(url)) {
+      route.abort();
+    } else {
+      route.continue();
+    }
+  });
+
   const cached = loadCachedCookies();
   if (cached) {
     await context.addCookies(cached);
@@ -77,7 +87,7 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(e => {
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(e => {
     console.warn('domcontentloaded 超时:', e.message?.slice(0, 80));
   });
 
