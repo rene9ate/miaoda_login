@@ -63,7 +63,7 @@ function parseKey(key) {
   await page.route('**/*', route => {
     const url = route.request().url();
     if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
-        /(hm\.baidu|analytics)/i.test(url)) {
+        /(hm\.baidu|analytics|jquery)/i.test(url)) {
       route.abort();
     } else {
       route.continue();
