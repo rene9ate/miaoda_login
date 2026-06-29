@@ -88,24 +88,38 @@ function parseKey(key) {
   // Cookie 无效或不存在，执行完整登录
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => console.warn('⏳ 页面加载超时，继续等待关键元素'));
 
-  const selectorExists = await page.waitForSelector('#TANGRAM__PSP_4__userName', { timeout: 15000 }).catch(() => null);
+  // 检查 iframe 中的登录表单
+  let loginFrame = null;
+  const frames = page.frames();
+  for (const f of frames) {
+    if (f.url().includes('passport.baidu.com') || f.url().includes('bce.baidu')) {
+      loginFrame = f;
+      break;
+    }
+  }
+  const target = loginFrame || page;
+
+  const selectorExists = await target.waitForSelector('#TANGRAM__PSP_4__userName', { timeout: 15000 }).catch(() => null);
   if (!selectorExists) {
     const title = await page.title().catch(() => 'N/A');
     const body = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
+    const html = await target.evaluate(() => document.querySelector('#passport-login-box')?.outerHTML?.slice(0, 1000) || document.body?.innerHTML?.slice(0, 1000)).catch(() => 'N/A');
     console.error('❌ 未找到登录表单，页面标题:', title);
     console.error('页面内容片段:', body);
+    console.error('页面 HTML 片段:', html);
+    console.error('iframe 数量:', frames.length, '当前 target URL:', target.url());
     process.exit(1);
   }
 
-  await page.fill('#TANGRAM__PSP_4__userName', creds.username);
-  await page.fill('#TANGRAM__PSP_4__password', creds.password);
+  await target.fill('#TANGRAM__PSP_4__userName', creds.username);
+  await target.fill('#TANGRAM__PSP_4__password', creds.password);
 
-  const agreeCheckbox = page.locator('#TANGRAM__PSP_4__isAgree');
+  const agreeCheckbox = target.locator('#TANGRAM__PSP_4__isAgree');
   if (!(await agreeCheckbox.isChecked())) {
     await agreeCheckbox.check();
   }
 
-  await page.click('#TANGRAM__PSP_4__submit');
+  await target.click('#TANGRAM__PSP_4__submit');
 
   try {
     await page.waitForURL(targetPattern, { timeout: 10000 });
