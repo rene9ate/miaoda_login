@@ -87,61 +87,89 @@ function parseKey(key) {
 
   await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 });
 
-  await page.waitForSelector('input[type="text"], input[type="email"], input[name="userName"], input[autocomplete="username"]', { timeout: 20000 });
+  await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => console.warn('network 未完全空闲，继续'));
+  await page.waitForTimeout(3000);
 
-  const inputs = await page.evaluate(() => {
-    const all = document.querySelectorAll('input');
-    return Array.from(all).map(el => ({
-      id: el.id,
-      name: el.name,
-      type: el.type,
-      placeholder: el.placeholder,
-      className: el.className?.slice(0, 60),
-      autocomplete: el.autocomplete,
+  const pageInfo = await page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('input')).map(el => ({
+      id: el.id, name: el.name, type: el.type, placeholder: el.placeholder,
+      className: el.className?.slice(0, 60), autocomplete: el.autocomplete,
+      visible: el.offsetParent !== null,
     }));
+    const buttons = Array.from(document.querySelectorAll('button, .btn, [role="button"], a.btns')).map(el => ({
+      id: el.id, text: el.textContent?.trim()?.slice(0, 40), className: el.className?.slice(0, 60),
+    }));
+    const bodyText = document.body?.innerText?.slice(0, 500);
+    return { inputs, buttons, bodyText };
   });
-  console.log('页面 input 元素:', JSON.stringify(inputs, null, 2));
 
-  if (inputs.length === 0) {
-    console.error('页面上没有找到 input 元素');
-    console.error('页面文字:', await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A'));
+  console.log('输入框:', JSON.stringify(pageInfo.inputs, null, 2));
+  console.log('按钮:', JSON.stringify(pageInfo.buttons, null, 2));
+
+  if (pageInfo.inputs.length === 0) {
+    console.error('未找到输入框，页面文字:', pageInfo.bodyText);
     process.exit(1);
   }
 
-  const userInput = inputs.find(i => i.type === 'text' || i.autocomplete === 'username' || i.name?.toLowerCase().includes('user') || i.placeholder?.toLowerCase().includes('账号') || i.placeholder?.toLowerCase().includes('手机'));
-  const passInput = inputs.find(i => i.type === 'password');
-  const agreeInput = await page.locator('input[type="checkbox"]').first().isVisible().then(() => true).catch(() => false);
+  const userCandidates = pageInfo.inputs.filter(i => i.type === 'text' && i.visible);
+  const passCandidates = pageInfo.inputs.filter(i => i.type === 'password' && i.visible);
 
-  if (!userInput || !passInput) {
-    console.error('未找到用户名或密码输入框');
+  if (userCandidates.length === 0 || passCandidates.length === 0) {
+    const allTextInputs = pageInfo.inputs.filter(i => i.type === 'text');
+    const allPassInputs = pageInfo.inputs.filter(i => i.type === 'password');
+    if (allTextInputs.length > 0 && allPassInputs.length > 0) {
+      const tabBtn = pageInfo.buttons.find(b =>
+        /密码|账号|登录/.test(b.text) && !/注册/.test(b.text)
+      );
+      if (tabBtn && tabBtn.id) {
+        await page.click('#' + tabBtn.id);
+        await page.waitForTimeout(1000);
+      }
+    }
+    const checkAgain = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('input')).map(el => ({
+        id: el.id, type: el.type, visible: el.offsetParent !== null,
+      }))
+    );
+    console.log('点击切换后输入框:', JSON.stringify(checkAgain, null, 2));
+  }
+
+  const visibleUser = (await page.evaluate(() => {
+    const el = document.querySelector('input[type="text"]');
+    return el && el.offsetParent !== null ? el.id || el.name || el.placeholder : null;
+  }));
+  const visiblePass = (await page.evaluate(() => {
+    const el = document.querySelector('input[type="password"]');
+    return el && el.offsetParent !== null ? el.id || el.name || el.placeholder : null;
+  }));
+
+  if (!visibleUser || !visiblePass) {
+    console.error('没有可见的用户名/密码输入框');
     process.exit(1);
   }
 
-  console.log('填入账号...');
-  await page.fill('#' + userInput.id, creds.username);
-  console.log('填入密码...');
-  await page.fill('#' + passInput.id, creds.password);
+  await page.locator('input[type="text"]').first().fill(creds.username, { force: true });
+  await page.locator('input[type="password"]').first().fill(creds.password, { force: true });
 
-  if (agreeInput) {
-    const cb = page.locator('input[type="checkbox"]').first();
+  const cb = page.locator('input[type="checkbox"]').first();
+  if (await cb.isVisible().catch(() => false)) {
     if (!(await cb.isChecked())) {
-      await cb.check();
-      console.log('已勾选同意');
+      await cb.check({ force: true });
     }
   }
 
-  const submitBtn = await page.evaluate(() => {
-    const btn = document.querySelector('button[type="submit"], input[type="submit"], .submit-btn, button:has(span)');
-    if (btn) {
-      btn.click();
-      return 'ok';
-    }
-    return 'not found';
-  });
+  const submitBtn = pageInfo.buttons.find(b =>
+    /登录|submit|提交/.test(b.text)
+  ) || pageInfo.buttons.find(b => /登录|submit/.test(b.text?.toLowerCase()));
 
-  if (submitBtn === 'not found') {
-    console.error('未找到登录按钮');
-    process.exit(1);
+  if (submitBtn) {
+    await page.locator(`#${submitBtn.id}`).click({ force: true });
+    console.log('已点击登录按钮:', submitBtn.text);
+  } else {
+    await page.evaluate(() => {
+      const btn = document.querySelector('button[type="submit"]');
+      if (btn) btn.click();
+    });
   }
 
   console.log('已点击登录，等待跳转...');
