@@ -47,8 +47,15 @@ function parseKey(key) {
     process.exit(1);
   }
 
+  // 最终目标：直接访问 iaas 或 miaoda 做验证
+  const targetChecks = [
+    { match: '**/console.bce.baidu.com/**', label: 'console.bce' },
+    { match: '**/www.miaoda.cn/**', label: 'miaoda.cn' },
+    { match: '**/passport.baidu.com/**?login*', label: 'passport.login', isLogin: true },
+  ];
+
   const loginUrl = 'https://login.bce.baidu.com/?redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
-  const targetPattern = '**/console.bce.baidu.com/**';
+  const finalTarget = 'https://console.bce.baidu.com/';
 
   const browser = await chromium.launch({
     headless: true,
@@ -71,23 +78,26 @@ function parseKey(key) {
     }
   });
 
+  // —————— 1. 直接访问 console.bce.baidu.com 验证 Cookie ——————
   const cached = loadCachedCookies();
   if (cached) {
     await context.addCookies(cached);
-    console.log('发现缓存 Cookie，尝试直接访问');
-    await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
-    try {
-      await page.waitForURL(targetPattern, { timeout: 15000 });
-      console.log('Cookie 有效，登录成功');
-      const cookies = await context.cookies();
-      saveCookies(cookies);
+    console.log('发现缓存 Cookie，直接访问目标...');
+    await page.goto(finalTarget, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    const afterUrl = page.url();
+    // 如果最终没被踢回 login 页，就算有效
+    if (!afterUrl.includes('login')) {
+      console.log('Cookie 有效');
+      saveCookies(cached);
       await browser.close();
       return;
-    } catch {
-      console.log('Cookie 已过期，重新登录');
     }
+    console.log('Cookie 已过期，重新登录');
   }
 
+  // —————— 2. 去 BCE 登录页 ——————
+  console.log('前往登录页...');
   await page.goto(loginUrl, { waitUntil: 'load', timeout: 120000 }).catch(() => {});
 
   console.log('等待页面加载...');
@@ -98,11 +108,27 @@ function parseKey(key) {
              !!document.getElementById('TANGRAM__PSP_3__userName');
     }).catch(() => false);
     if (hasForm) { ready = true; break; }
-    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 80)).catch(() => '');
-    if (i % 10 === 0) console.log(`等待表单... text="${text}" i=${i + 1}/90`);
+    const url = page.url();
+    // 如果被重定向到非登录页，提前退出
+    if (!url.includes('login') && !url.includes('passport')) {
+      console.log('已被重定向，URL:', url);
+      ready = true;
+      break;
+    }
+    if (i % 10 === 0) console.log(`等待表单... url=${url} i=${i + 1}/90`);
     await page.waitForTimeout(2000);
   }
   console.log();
+
+  const currentUrl = page.url();
+  // 已被重定向 → 无需登录
+  if (!currentUrl.includes('login') && !currentUrl.includes('passport')) {
+    console.log('无需登录，已跳转到:', currentUrl);
+    const cookies = await context.cookies();
+    saveCookies(cookies);
+    await browser.close();
+    return;
+  }
 
   if (!ready) {
     const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
@@ -169,15 +195,10 @@ function parseKey(key) {
   console.log('等待登录完成...');
 
   let loginDone = false;
-  let currentUrl = '';
+  let currentUrl2 = '';
   for (let i = 0; i < 30; i++) {
-    currentUrl = page.url();
-    if (!currentUrl.includes('passport.baidu.com') && !currentUrl.includes('login')) {
-      loginDone = true;
-      break;
-    }
-    const formGone = await page.evaluate(() => !document.getElementById('TANGRAM__PSP_3__userName')).catch(() => false);
-    if (formGone) {
+    currentUrl2 = page.url();
+    if (!currentUrl2.includes('passport.baidu.com') && !currentUrl2.includes('login')) {
       loginDone = true;
       break;
     }
@@ -185,7 +206,7 @@ function parseKey(key) {
   }
 
   if (loginDone) {
-    console.log('登录成功，当前 URL:', currentUrl || page.url());
+    console.log('登录成功，当前 URL:', currentUrl2 || page.url());
   } else {
     const errInfo = await page.evaluate(() => {
       const errEl = document.querySelector('.pass-error, .error, .errmsg, [class*="error"], .tip');
