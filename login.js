@@ -182,25 +182,54 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(1000);
 
   console.log('提交登录...');
-  await page.evaluate(() => {
+  const submitResult = await page.evaluate(() => {
     const btn = document.getElementById('TANGRAM__PSP_4__submit');
-    if (btn) btn.click();
+    if (!btn) return '未找到提交按钮';
+
+    // 模拟真实点击
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+    btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+    // 备用：提交表单
+    const form = btn.closest('form');
+    if (form && !form.checkValidity()) return '表单验证失败';
+    if (form) {
+      setTimeout(() => { if (form) form.submit(); }, 500);
+    }
+
+    return '已触发点击';
   });
+  console.log('提交结果:', submitResult);
+
+  await page.waitForTimeout(3000);
+
+  console.log('等待跳转...');
 
   try {
     await page.waitForURL(targetPattern, { timeout: 60000 });
-    console.log('登录成功');
-    const cookies = await context.cookies();
-    saveCookies(cookies);
+    console.log('登录成功，当前 URL:', page.url());
   } catch {
-    console.error('当前 URL:', page.url());
-    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A');
-    console.error('页面内容:', text);
+    const stillThere = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
+    if (stillThere) {
+      const err = await page.evaluate(() => document.querySelector('.pass-error')?.textContent?.trim()).catch(() => null);
+      console.error('登录失败:', err || '仍在登录页面，可能密码/账号错误');
+    } else {
+      console.error('当前 URL:', page.url());
+      const text = await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A');
+      console.error('页面内容:', text);
+    }
     process.exit(1);
   }
+
+  const cookies = await context.cookies();
+  saveCookies(cookies);
+
+  const cookies = await context.cookies();
+  saveCookies(cookies);
 
   await browser.close();
 })();
