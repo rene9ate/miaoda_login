@@ -121,73 +121,22 @@ function parseKey(key) {
   }
 
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {
-    console.warn('goto 超时，开始轮询等待渲染');
+    console.warn('goto 超时，开始轮询等待');
   });
 
   let ready = false;
   for (let i = 0; i < 90; i++) {
-    const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
-    if (text.includes('百度账号') || text.includes('账号登录')) { ready = true; break; }
+    const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
+    if (hasForm) { ready = true; break; }
     const htmlLen = await page.evaluate(() => document.body?.innerHTML?.length || 0).catch(() => 0);
-    if (i % 10 === 0) console.log(`等待渲染... body=${htmlLen}B i=${i + 1}/90`);
+    if (i % 10 === 0) console.log(`等待表单... body=${htmlLen}B i=${i + 1}/90`);
     await page.waitForTimeout(2000);
   }
   console.log();
 
   if (!ready) {
-    const url = page.url();
     const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
-    console.error('页面未渲染 - URL:', url, '内容:', text);
-    process.exit(1);
-  }
-
-  console.log('页面已渲染，查找登录标签...');
-
-  const tabs = await page.evaluate(() => {
-    const all = document.querySelectorAll('*');
-    return [...all]
-      .filter(e => e.offsetParent !== null && e.textContent?.trim())
-      .map(e => ({
-        text: e.textContent?.trim()?.slice(0, 60),
-        tag: e.tagName,
-        id: e.id,
-        class: e.className?.slice(0, 30),
-      }));
-  });
-  console.log('所有可见元素:', JSON.stringify(tabs, null, 2));
-
-  const loginTabs = tabs.filter(t => /账号登录|密码登录/.test(t.text));
-  console.log('登录相关可见元素:', JSON.stringify(loginTabs, null, 2));
-
-  const tabClicked = await page.evaluate(() => {
-    const all = document.querySelectorAll('div, span, a, li, label, button, p, section');
-    const el = [...all].find(e => {
-      if (e.offsetParent === null) return false;
-      const t = e.textContent?.trim() || '';
-      return t === '账号登录' || t === '密码登录' || /^账号登录/.test(t);
-    });
-    if (el) { el.click(); return true; }
-
-    const el2 = [...all].find(e => {
-      if (e.offsetParent === null) return false;
-      return e.textContent?.includes('账号') && e.textContent?.includes('登录');
-    });
-    if (el2) { el2.click(); return true; }
-    return false;
-  });
-  console.log(tabClicked ? '已点击账号登录标签' : '未找到账号登录标签');
-
-  let found = false;
-  for (let i = 0; i < 30; i++) {
-    found = await page.evaluate(() => !!document.getElementById('uc-common-account')).catch(() => false);
-    if (found) break;
-    await page.waitForTimeout(2000);
-  }
-
-  if (!found) {
-    const title = await page.title().catch(() => 'N/A');
-    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
-    console.error('表单未加载 - 标题:', title, '内容:', text);
+    console.error('表单未加载 - 内容:', text);
     process.exit(1);
   }
 
@@ -232,47 +181,14 @@ function parseKey(key) {
     console.error('填写失败:', fillResult);
     process.exit(1);
   }
+
   await page.waitForTimeout(500);
 
-  const agreeText = await page.evaluate(() => {
-    const el = [...document.querySelectorAll('div, span, label, i, em')].find(e =>
-      /阅读并同意|用户协议|隐私政策/.test(e.textContent) && e.offsetParent !== null
-    );
-    if (el) { el.click(); return '已点同意'; }
-    const cb = document.querySelector('input[type="checkbox"]');
-    if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); return '已勾选框'; }
-    return '未找到同意';
+  console.log('提交登录...');
+  await page.evaluate(() => {
+    const btn = document.getElementById('TANGRAM__PSP_4__submit');
+    if (btn) btn.click();
   });
-  console.log('协议处理:', agreeText);
-  await page.waitForTimeout(500);
-
-  const buttons = await page.evaluate(() =>
-    [...document.querySelectorAll('button, [role="button"]')]
-      .filter(e => e.offsetParent !== null)
-      .map(e => ({ text: e.textContent?.trim()?.slice(0, 30), id: e.id, type: e.type }))
-  );
-  console.log('可见按钮:', JSON.stringify(buttons, null, 2));
-
-  let loginBtn = buttons.find(b => /登录|submit/.test(b.text || ''));
-  let btnId = loginBtn?.id;
-
-  if (!btnId) {
-    const all = await page.evaluate(() =>
-      [...document.querySelectorAll('button')].map(e => ({ text: e.textContent?.trim()?.slice(0, 30), id: e.id }))
-    );
-    console.log('所有按钮:', JSON.stringify(all, null, 2));
-    loginBtn = all.find(b => /登录|submit/.test(b.text || ''));
-    btnId = loginBtn?.id;
-  }
-
-  if (!btnId) {
-    console.error('未找到登录按钮');
-    process.exit(1);
-  }
-
-  await page.click('#' + btnId);
-  console.log('已点击登录按钮:', loginBtn?.text);
-  await page.waitForTimeout(2000);
 
   try {
     await page.waitForURL(targetPattern, { timeout: 60000 });
