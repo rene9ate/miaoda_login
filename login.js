@@ -146,7 +146,7 @@ function parseKey(key) {
     }
   });
 
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(5000);
 
   console.log('等待登录完成...');
 
@@ -169,8 +169,14 @@ function parseKey(key) {
   if (loginDone) {
     console.log('登录成功，当前 URL:', currentUrl || page.url());
   } else {
-    const err = await page.evaluate(() => document.querySelector('.pass-error')?.textContent?.trim()).catch(() => null);
-    console.error('登录失败:', err || '超时或密码错误');
+    const errInfo = await page.evaluate(() => {
+      const errEl = document.querySelector('.pass-error, .error, .errmsg, [class*="error"], .tip');
+      const errText = errEl?.textContent?.trim();
+      const allText = document.body?.innerText?.slice(0, 1000);
+      return { errText, allText };
+    }).catch(() => ({}));
+    console.error('登录失败 - 错误:', errInfo.errText);
+    console.error('页面内容:', errInfo.allText);
     process.exit(1);
   }
 
