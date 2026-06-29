@@ -97,6 +97,14 @@ function parseKey(key) {
     process.exit(1);
   }
 
+  await page.evaluate(() => {
+    const tab = [...document.querySelectorAll('div, span, a, li, label')].find(el =>
+      el.textContent?.trim() === '账号登录' && el.offsetParent !== null
+    );
+    if (tab) tab.click();
+  });
+  await page.waitForTimeout(1500);
+
   console.log('填写表单...');
   const fillResult = await page.evaluate(({ username, password }) => {
     const userEl = document.getElementById('uc-common-account');
@@ -117,10 +125,12 @@ function parseKey(key) {
       passEl.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-      if (!cb.checked) {
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const agreements = document.querySelectorAll('input[type="checkbox"], [class*="agree"], [class*="protocol"], [class*="checkbox"]');
+    agreements.forEach(el => {
+      if (el.type === 'checkbox') {
+        if (!el.checked) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
+      } else {
+        el.click();
       }
     });
 
@@ -128,24 +138,30 @@ function parseKey(key) {
   }, creds);
 
   console.log('表单填写结果:', fillResult);
-
   await page.waitForTimeout(1000);
 
-  const btnClicked = await page.evaluate(() => {
+  const ready = await page.evaluate(() => {
     const btn = document.querySelector('button[type="submit"]') ||
-                document.querySelector('#ucsl-submit') ||
                 document.querySelector('[class*="submit"]') ||
                 document.querySelector('[class*="login"]');
     if (btn) { btn.click(); return true; }
     return false;
   });
 
-  if (!btnClicked) {
-    console.error('未找到登录按钮');
-    process.exit(1);
+  if (!ready) {
+    const btns = await page.evaluate(() =>
+      [...document.querySelectorAll('button, [role="button"], .btn, [class*="btn"], [class*="button"]')]
+        .filter(el => el.offsetParent !== null)
+        .map(el => ({ text: el.textContent?.trim()?.slice(0, 30), id: el.id, class: el.className?.slice(0, 40) }))
+    );
+    console.log('页面可见按钮:', JSON.stringify(btns, null, 2));
+    const hit = btns.find(b => b.text?.includes('登录'));
+    if (hit && hit.id) { await page.click('#' + hit.id); console.log('已点击:', hit.text); }
+    else { console.error('未找到登录按钮'); process.exit(1); }
   }
 
   console.log('已点击登录，等待跳转...');
+  await page.waitForTimeout(3000);
 
   await page.waitForTimeout(5000);
 
