@@ -130,19 +130,22 @@ function parseKey(key) {
   console.log('已提交登录，等待跳转...');
 
   try {
-    await page.waitForURL(targetPattern, { timeout: 20000 });
+    await page.waitForURL(targetPattern, { timeout: 30000 });
     console.log('登录成功');
     const cookies = await context.cookies();
     saveCookies(cookies);
   } catch {
+    const currentUrl = page.url();
     const errText = await page.evaluate(() => {
       const err = document.querySelector('.error-message, .errmsg, [class*="error"], .tip');
       return err?.textContent?.trim() || document.querySelector('.captcha') ? '需要验证码' : null;
     }).catch(() => null);
+    const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => null);
+    console.error('当前 URL:', currentUrl);
     if (errText) {
       console.error('登录失败:', errText);
-    } else {
-      console.error('登录超时或跳转失败');
+    } else if (pageText) {
+      console.error('页面内容:', pageText);
     }
     process.exit(1);
   }
