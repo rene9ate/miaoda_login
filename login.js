@@ -160,6 +160,10 @@ function parseKey(key) {
   if (result.ok) {
     const cookies = await context.cookies();
     saveCookies(cookies);
+    // 通知 GHA 缓存：cookie 有变化
+    if (process.env.GITHUB_OUTPUT) {
+      require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'cookies_changed=true\n');
+    }
   } else {
     console.error('登录失败');
     process.exit(1);

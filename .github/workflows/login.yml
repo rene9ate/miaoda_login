@@ -49,12 +49,12 @@ jobs:
         env:
           LOGIN_KEY: ${{ inputs.login_key || secrets.LOGIN_KEY }}
 
-      - name: 保存 Cookie 到缓存
-        if: steps.login.outcome == 'success'
+      - name: 保存 Cookie 到缓存（仅重新登录后）
+        if: steps.login.outputs.cookies_changed == 'true'
         uses: actions/cache/save@v4
         with:
           path: cache
-          key: cookies-${{ runner.os }}-${{ hashFiles('cache/cookies.json') || '0' }}
+          key: cookies-${{ runner.os }}-${{ github.run_id }}
 
       - name: 登录失败上报 Issue
         if: steps.login.outcome != 'success'
