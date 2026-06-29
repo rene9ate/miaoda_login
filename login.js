@@ -87,13 +87,24 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 60000 }).catch(() => {});
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(e => {
+    console.warn('goto 超时:', e.message?.slice(0, 100));
+  });
 
-  await page.waitForSelector('#uc-common-account', { timeout: 120000, state: 'attached' });
+  let found = false;
+  for (let i = 0; i < 60; i++) {
+    found = await page.evaluate(() => !!document.getElementById('uc-common-account')).catch(() => false);
+    if (found) break;
+    await page.waitForTimeout(2000);
+  }
 
-  const formReady = await page.evaluate(() => !!document.getElementById('uc-common-account'));
-  if (!formReady) {
-    console.error('未找到登录表单');
+  if (!found) {
+    const title = await page.title().catch(() => 'N/A');
+    const url = page.url();
+    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
+    console.error('表单未加载 - 标题:', title);
+    console.error('URL:', url);
+    console.error('页面:', text);
     process.exit(1);
   }
 
