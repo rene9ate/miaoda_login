@@ -77,9 +77,18 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 90000 });
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(e => {
+    console.warn('domcontentloaded 超时:', e.message?.slice(0, 80));
+  });
 
-  await page.waitForSelector('#uc-common-account', { timeout: 60000, state: 'attached' });
+  const found = await page.waitForSelector('#uc-common-account', { timeout: 60000, state: 'attached' }).catch(() => null);
+  if (!found) {
+    const title = await page.title().catch(() => 'N/A');
+    const url = page.url();
+    const html = await page.evaluate(() => document.body?.innerHTML?.slice(0, 300)).catch(() => 'N/A');
+    console.error('未找到表单 - 标题:', title, 'URL:', url, 'HTML:', html);
+    process.exit(1);
+  }
 
   const hasForm = await page.evaluate(() => !!document.getElementById('uc-common-account'));
   if (!hasForm) {
