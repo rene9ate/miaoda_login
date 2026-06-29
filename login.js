@@ -60,17 +60,7 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
-  await page.route('**/*', route => {
-    const url = route.request().url();
-    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
-        /(hm\.baidu|analytics)/i.test(url)) {
-      route.abort();
-    } else if (/jquery/i.test(url)) {
-      route.fulfill({ status: 200, contentType: 'application/javascript', body: '' });
-    } else {
-      route.continue();
-    }
-  });
+  // no route blocking - let everything load
 
   const cached = loadCachedCookies();
   if (cached) {
@@ -89,14 +79,16 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {
+    console.warn('goto 超时，开始轮询等待渲染');
+  });
 
   let ready = false;
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 90; i++) {
     const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
     if (text.includes('百度账号') || text.includes('账号登录')) { ready = true; break; }
     const htmlLen = await page.evaluate(() => document.body?.innerHTML?.length || 0).catch(() => 0);
-    if (i % 5 === 0) console.log(`等待渲染... body=${htmlLen}B i=${i + 1}/120`);
+    if (i % 10 === 0) console.log(`等待渲染... body=${htmlLen}B i=${i + 1}/90`);
     await page.waitForTimeout(2000);
   }
   console.log();
