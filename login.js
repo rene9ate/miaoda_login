@@ -87,7 +87,7 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
+  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 60000 }).catch(() => {});
 
   await page.waitForSelector('#uc-common-account', { timeout: 120000, state: 'attached' });
 
