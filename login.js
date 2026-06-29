@@ -64,7 +64,7 @@ function parseKey(key) {
   if (cached) {
     await context.addCookies(cached);
     console.log('发现缓存 Cookie，尝试直接访问');
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.goto(loginUrl, { waitUntil: 'commit', timeout: 90000 }).catch(() => {});
     try {
       await page.waitForURL(targetPattern, { timeout: 15000 });
       console.log('Cookie 有效，登录成功');
@@ -77,9 +77,9 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => console.warn('domcontentloaded 超时，继续'));
+  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 90000 });
 
-  await page.waitForSelector('#uc-common-account', { timeout: 30000, state: 'attached' }).catch(() => {});
+  await page.waitForSelector('#uc-common-account', { timeout: 60000, state: 'attached' });
 
   const hasForm = await page.evaluate(() => !!document.getElementById('uc-common-account'));
   if (!hasForm) {
