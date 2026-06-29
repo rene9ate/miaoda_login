@@ -69,6 +69,170 @@ function parseKey(key) {
 
   page.on('pageerror', err => console.error('[页面异常]', err.message));
 
+  // 轻量 jQuery 桩：保留 TANGRAM 所需的 $.extend / .append
+  await page.route('**/*', route => {
+    const url = route.request().url();
+    if (/jquery/i.test(url)) {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: `
+window.$ = function (s) {
+  var e = typeof s === 'string' ? document.querySelectorAll(s) : s || [];
+  return Object.assign(Array.from(e), {
+    val: function (v) {
+      if (v === undefined) return this[0]?.value;
+      this.forEach(function (x) { x.value = v; });
+      return this;
+    },
+    on: function (e, f) {
+      this.forEach(function (x) { x.addEventListener(e, f); });
+      return this;
+    },
+    click: function (f) {
+      if (f) this.on('click', f);
+      else this[0]?.click();
+      return this;
+    },
+    attr: function (n, v) {
+      if (v === undefined) return this[0]?.getAttribute(n);
+      this.forEach(function (x) { x.setAttribute(n, v); });
+      return this;
+    },
+    each: function (f) {
+      for (var i = 0; i < this.length; i++) f.call(this[i], i, this[i]);
+      return this;
+    },
+    find: function (s) {
+      var r = [];
+      this.forEach(function (x) { r.push.apply(r, x.querySelectorAll(s)); });
+      return window.$(r);
+    },
+    trigger: function (e) {
+      this.forEach(function (x) { x.dispatchEvent(new Event(e, { bubbles: true })); });
+      return this;
+    },
+    append: function (c) {
+      this.forEach(function (x) {
+        if (typeof c === 'string') x.insertAdjacentHTML('beforeend', c);
+        else if (c.nodeType) x.appendChild(c);
+      });
+      return this;
+    },
+    remove: function () {
+      this.forEach(function (x) { x.parentNode?.removeChild(x); });
+      return this;
+    },
+    text: function (t) {
+      if (t === undefined) return this.map(function (x) { return x.textContent; }).join('');
+      this.forEach(function (x) { x.textContent = t; });
+      return this;
+    },
+    html: function (h) {
+      if (h === undefined) return this[0]?.innerHTML;
+      this.forEach(function (x) { x.innerHTML = h; });
+      return this;
+    },
+    css: function (prop, val) {
+      if (val === undefined) return this[0]?.style[prop];
+      this.forEach(function (x) { x.style[prop] = val; });
+      return this;
+    },
+    show: function () { this.forEach(function (x) { x.style.display = ''; }); return this; },
+    hide: function () { this.forEach(function (x) { x.style.display = 'none'; }); return this; },
+    addClass: function (c) { this.forEach(function (x) { x.classList.add(c); }); return this; },
+    removeClass: function (c) { this.forEach(function (x) { x.classList.remove(c); }); return this; },
+    toggleClass: function (c) { this.forEach(function (x) { x.classList.toggle(c); }); return this; },
+    hasClass: function (c) { return this.some(function (x) { return x.classList.contains(c); }); },
+    parent: function () { return window.$(this[0]?.parentNode); },
+    children: function () {
+      var r = [];
+      this.forEach(function (x) { r.push.apply(r, x.children); });
+      return window.$(r);
+    },
+    siblings: function () {
+      if (!this[0]) return window.$([]);
+      return window.$(Array.from(this[0].parentNode.children).filter(function (c) { return c !== this[0]; }.bind(this)));
+    },
+    index: function () {
+      if (!this[0]) return -1;
+      return Array.from(this[0].parentNode.children).indexOf(this[0]);
+    },
+    data: function (k, v) {
+      if (v === undefined) return this[0]?.dataset[k];
+      this.forEach(function (x) { x.dataset[k] = v; });
+      return this;
+    },
+    serialize: function () {
+      if (!this[0] || !this[0].elements) return '';
+      return Array.from(this[0].elements).filter(function (e) { return e.name; }).map(function (e) {
+        return encodeURIComponent(e.name) + '=' + encodeURIComponent(e.value);
+      }).join('&');
+    },
+  });
+};
+window.$.extend = function () {
+  var args = Array.from(arguments);
+  var deep = typeof args[0] === 'boolean' ? args.shift() : false;
+  var target = args.shift() || {};
+  args.forEach(function (src) {
+    if (!src) return;
+    Object.keys(src).forEach(function (key) {
+      if (deep && typeof src[key] === 'object' && src[key] !== null && !Array.isArray(src[key])) {
+        if (!target[key]) target[key] = {};
+        window.$.extend(true, target[key], src[key]);
+      } else {
+        target[key] = src[key];
+      }
+    });
+  });
+  return target;
+};
+window.$.each = function (arr, fn) {
+  if (arr == null) return arr;
+  for (var i = 0; i < arr.length; i++) {
+    if (fn.call(arr[i], i, arr[i]) === false) break;
+  }
+  return arr;
+};
+window.$.trim = function (s) { return s == null ? '' : String(s).trim(); };
+window.$.inArray = function (v, arr) { return arr.indexOf(v); };
+window.$.map = function (arr, fn) {
+  if (!arr) return [];
+  var r = [];
+  for (var i = 0; i < arr.length; i++) r.push(fn(arr[i], i));
+  return r;
+};
+window.$.param = function (obj) {
+  if (!obj) return '';
+  return Object.keys(obj).map(function (k) {
+    return encodeURIComponent(k) + '=' + encodeURIComponent(obj[k]);
+  }).join('&');
+};
+window.$.ajax = function (opts) {
+  return new Promise(function (resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    var method = (opts.type || 'GET').toUpperCase();
+    xhr.open(method, opts.url);
+    if (opts.contentType) xhr.setRequestHeader('Content-Type', opts.contentType);
+    if (opts.dataType === 'json') xhr.setRequestHeader('Accept', 'application/json');
+    xhr.onload = function () {
+      var data = opts.dataType === 'json' ? JSON.parse(xhr.responseText) : xhr.responseText;
+      if (opts.success) opts.success(data, xhr.statusText, xhr);
+      resolve(data);
+    };
+    xhr.onerror = function () { if (opts.error) opts.error(xhr); reject(xhr); };
+    xhr.send(opts.data || null);
+  });
+};
+window.jQuery = window.$;
+`.trim()
+      });
+    } else {
+      route.continue();
+    }
+  });
+
   // —————— 1. 直接访问 console.bce.baidu.com 验证 Cookie ——————
   const cached = loadCachedCookies();
   if (cached) {
@@ -93,7 +257,7 @@ function parseKey(key) {
 
   console.log('等待页面加载...');
   let ready = false;
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 30; i++) {
     const hasForm = await page.evaluate(() => {
       return !!document.getElementById('TANGRAM__PSP_4__userName') ||
              !!document.getElementById('TANGRAM__PSP_3__userName');
