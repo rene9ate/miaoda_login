@@ -38,18 +38,19 @@ jobs:
 
       - name: 登录失败上报 Issue
         if: failure()
+        shell: bash
         run: |
+          cat <<'ISSUE' > /tmp/issue-body.md
+          ## 登录失败
+
+          - **时间**: $(date -u '+%Y-%m-%d %H:%M UTC')
+          - **运行编号**: [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          请检查 LOGIN_KEY 是否正确或账号是否需要验证码。
+          ISSUE
           gh issue create \
             --title "一键登录失败 - $(date -u '+%Y-%m-%d %H:%M UTC')" \
-            --body "## 登录失败
-
-| 项目 | 内容 |
-|------|------|
-| 时间 | $(date -u '+%Y-%m-%d %H:%M UTC') |
-| 运行编号 | [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
-
-请检查 LOGIN_KEY 是否正确或账号是否需要验证码。
-" \
+            --body-file /tmp/issue-body.md \
             --label "bug"
         env:
           GH_TOKEN: ${{ github.token }}
