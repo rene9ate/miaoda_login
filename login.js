@@ -46,8 +46,6 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  // passport.baidu.com 比 BCE 登录页加载快得多
-  const loginUrl = 'https://passport.baidu.com/v2/?login';
   const targetUrl = 'https://www.miaoda.cn/';
 
   const browser = await chromium.launch({
@@ -59,7 +57,7 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
-  // 拦截 bce.bdstatic.com（超时源），其他资源（含真实 jQuery）正常加载
+  // 只拦截 bce.bdstatic.com
   await page.route('**/*', route => {
     if (route.request().url().includes('bce.bdstatic.com')) {
       route.abort('timedout');
@@ -86,10 +84,10 @@ function parseKey(key) {
   }
 
   // —————— 登录 ——————
-  console.log('前往登录页...');
-  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+  console.log('前往 passport.baidu.com...');
+  await page.goto('https://passport.baidu.com/v2/?login', { waitUntil: 'load', timeout: 60000 }).catch(() => {});
 
-  // 等待表单出现（passport 页面通常 <10 秒）
+  // 等待 TANGRAM 表单出现
   console.log('等待页面加载...');
   let ready = false;
   for (let i = 0; i < 30; i++) {
@@ -104,98 +102,83 @@ function parseKey(key) {
     console.error('表单未加载');
     process.exit(1);
   }
-  console.log('表单已就绪，切换至账号登录...');
+  console.log('表单已就绪');
 
-  // 先点击"账号登录" tab
-  await page.evaluate(() => {
-    const text = '账号登录';
-    // 用 XPath 查找文本节点
-    const el = document.evaluate(
-      `//*[text()="${text}"]`,
-      document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-    ).singleNodeValue;
-    if (el) { el.click(); return; }
-    // 回退：在所有 a/span/div 中匹配文本
-    const all = document.querySelectorAll('a, span, div, li');
-    for (const e of all) {
-      if (e.textContent?.trim() === text) { e.click(); return; }
-    }
-  });
-  await page.waitForTimeout(1500);
+  // 提取表单需要的全部字段 + 调用登录 API
+  console.log('调用登录 API...');
+  const result = await page.evaluate(async (creds) => {
+    const id = (name) => `TANGRAM__PSP_3__${name}`;
 
-  // 填写表单（优先 Playwright 原生，不可见时回退到 evaluate）
-  console.log('填写表单...');
-  const userNameEl = page.locator('#TANGRAM__PSP_3__userName');
-  if (await userNameEl.isVisible().catch(() => false)) {
-    await userNameEl.fill(creds.username);
-  } else {
-    await page.evaluate((u) => {
-      const el = document.getElementById('TANGRAM__PSP_3__userName');
-      if (el) { el.value = u; el.dispatchEvent(new Event('input', { bubbles: true })); }
-    }, creds.username);
-  }
-  const passEl = page.locator('#TANGRAM__PSP_3__password');
-  if (await passEl.isVisible().catch(() => false)) {
-    await passEl.fill(creds.password);
-  } else {
-    await page.evaluate((p) => {
-      const el = document.getElementById('TANGRAM__PSP_3__password');
-      if (el) { el.value = p; el.dispatchEvent(new Event('input', { bubbles: true })); }
-    }, creds.password);
-  }
-  // 勾选"记住我"
-  await page.evaluate(() => {
-    const cb = document.getElementById('TANGRAM__PSP_3__memberPass');
-    if (cb && !cb.checked) {
-      cb.checked = true;
-      cb.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  });
-  console.log('表单已填写');
+    const getVal = (name) => {
+      const el = document.getElementById(id(name));
+      return el ? el.value : '';
+    };
 
-  await page.waitForTimeout(500);
+    // 收集所有表单字段
+    const staticPage = getVal('staticPage') || 'https://passport.baidu.com/static/passpc-account/html/v3Jump.html';
+    const charset = getVal('charset') || 'utf-8';
+    const token = getVal('token') || '';
+    const tpl = getVal('tpl') || 'pp';
+    const subpro = getVal('subpro') || '';
+    const apiver = getVal('apiver') || 'v3';
+    const tt = getVal('tt') || String(Date.now());
+    const codestring = getVal('codestring') || '';
+    const safeflag = getVal('safeFlag') || '0';
+    const isPhone = getVal('isPhone') || 'false';
+    const quickUser = getVal('quick_user') || '';
+    const logLoginType = getVal('logLoginType') || 'loginLog';
+    const idc = getVal('idc') || '';
+    const loginMerge = getVal('loginMerge') || '';
+    const gid = getVal('gid') || '';
+    const u = getVal('u') || '';
+    const memPass = 'on';
+    const username = creds.username;
+    const password = creds.password;
+    const loginType = '1';
+    const logLoginType = 'loginLog';
+    const detect = '1';
 
-  // Playwright 原生点击（先尝试点击，失败则 evaluate + Enter）
-  console.log('提交登录...');
-  const submitBtn = page.locator('#TANGRAM__PSP_3__submit');
-  try {
-    await submitBtn.waitFor({ state: 'visible', timeout: 3000 });
-    await submitBtn.click({ timeout: 10000 });
-  } catch {
-    await page.evaluate(() => {
-      const btn = document.getElementById('TANGRAM__PSP_3__submit');
-      if (btn) btn.click();
+    const body = new URLSearchParams({
+      staticPage, charset, token, tpl, subpro, apiver, tt,
+      codestring, safeflag, isPhone, quickUser, logLoginType,
+      idc, loginMerge, gid, u, memPass,
+      username, password, loginType, detect,
+      ppui_logintime: String(Date.now()),
+      callback: 'parent.bd__pcbs__' + Date.now(),
     });
-    await page.keyboard.press('Enter');
-  }
 
-  // 等待登录完成——检测 URL 离开 passport/login
-  console.log('等待登录完成...');
-  let loginDone = false;
-  let finalUrl = '';
-  for (let i = 0; i < 60; i++) {
-    finalUrl = page.url();
-    if (!finalUrl.includes('passport.baidu.com') && !finalUrl.includes('/login')) {
-      loginDone = true;
-      break;
+    try {
+      const res = await fetch('https://passport.baidu.com/v2/api/?login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        body: body.toString(),
+        credentials: 'include',
+      });
+      const text = await res.text();
+      return { ok: res.ok, status: res.status, body: text.slice(0, 2000) };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
-    // 检查是否有错误提示
-    const errMsg = await page.evaluate(() => {
-      const el = document.querySelector('.pass-error, .errmsg, .error-tip, [class*="error"]');
-      return el?.textContent?.trim() || '';
-    }).catch(() => '');
-    if (errMsg && i % 5 === 0) console.log('当前错误:', errMsg);
-    await page.waitForTimeout(2000);
-  }
+  }, creds);
+  console.log('API 响应:', JSON.stringify(result));
 
-  if (!loginDone) {
-    const content = await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A');
-    console.error('登录失败，页面内容:', content);
+  // 如果 API 返回了重定向，跟进
+  if (result.ok) {
+    // 等待页面可能发生的重定向
+    await page.waitForTimeout(5000);
+    const finalUrl = page.url();
+    console.log('当前 URL:', finalUrl);
+
+    const cookies = await context.cookies();
+    saveCookies(cookies);
+    console.log('登录凭据已缓存');
+  } else {
+    console.error('登录失败');
     process.exit(1);
   }
 
-  console.log('登录成功，当前 URL:', finalUrl);
-  const cookies = await context.cookies();
-  saveCookies(cookies);
   await browser.close();
 })();
