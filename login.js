@@ -62,42 +62,30 @@ function parseKey(key) {
 
   await page.route('**/*', route => {
     const url = route.request().url();
-    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi)$/i.test(url)) {
+    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
+        /(hm\.baidu|analytics)/i.test(url)) {
       route.abort();
     } else if (/jquery/i.test(url)) {
-      const stub = `
-        window.jQuery = window.$ = function(sel) { return document.querySelectorAll(sel); };
-        $.fn = $.prototype = { 
-          ready: function(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); },
-          each: function(fn) { for (var i=0;i<this.length;i++) fn.call(this[i],i,this[i]); },
-          val: function(v) { if (v===undefined) return this[0]?.value; this.each(e=>e.value=v); return this; },
-          on: function(e,fn) { this.each(el=>el.addEventListener(e,fn)); return this; },
-          off: function(e,fn) { this.each(el=>el.removeEventListener(e,fn)); return this; },
-          click: function(fn) { this.each(el=>el.addEventListener('click',fn)); return this; },
-          submit: function() { this.each(el=>el.form?.submit()); return this; },
-          serialize: function() { return Array.from(this[0]?.elements||[]).filter(e=>e.name).map(e=>e.name+'='+encodeURIComponent(e.value)).join('&'); },
-          attr: function(n,v) { if(v===undefined) return this[0]?.getAttribute(n); this.each(e=>e.setAttribute(n,v)); return this; },
-          removeAttr: function(n) { this.each(e=>e.removeAttribute(n)); return this; },
-          addClass: function(c) { this.each(e=>e.classList.add(c)); return this; },
-          removeClass: function(c) { this.each(e=>e.classList.remove(c)); return this; },
-          hasClass: function(c) { return this[0]?.classList.contains(c); },
-          css: function(p,v) { if(v===undefined) return this[0]?.style[p]; this.each(e=>e.style[p]=v); return this; },
-          data: function(k,v) { if(v===undefined) return this[0]?.[k]; this.each(e=>e[k]=v); return this; },
-          remove: function() { this.each(e=>e.parentNode?.removeChild(e)); return this; },
-          find: function(s) { var r=[]; this.each(e=>r.push(...e.querySelectorAll(s))); return $(r); },
-          closest: function(s) { return this[0]?.closest(s); },
-          parent: function() { return this[0]?.parentNode; },
-          children: function() { return this[0]?.children; },
-          siblings: function() { var p=this[0]?.parentNode; return p?$(Array.from(p.children).filter(c=>c!==this[0])):$({length:0}); },
-          index: function() { var p=this[0]?.parentNode; return p?Array.from(p.children).indexOf(this[0]):-1; },
-          trigger: function(e) { this.each(el=>el.dispatchEvent(new Event(e,{bubbles:true}))); return this; }
+      route.fulfill({ status: 200, contentType: 'application/javascript', body: `
+        window.jQuery = window.$ = function(sel) {
+          var el = typeof sel === 'function' ? null : document.querySelectorAll(sel);
+          return Object.assign(el || [], {
+            ready: function(f) { if (typeof sel === 'function') sel(); if (f) f(); return this; },
+            val: function(v) { if(v===undefined) return this[0]?.value; this.forEach(function(e){e.value=v;}); return this; },
+            on: function(e,f) { this.forEach(function(el){el.addEventListener(e,f);}); return this; },
+            attr: function(n,v) { if(v===undefined) return this[0]?.getAttribute(n); this.forEach(function(e){e.setAttribute(n,v);}); return this; },
+            click: function(f) { if(f) this.on('click',f); else this[0]?.click(); return this; },
+            find: function(s) { var r=[]; this.forEach(function(e){r.push.apply(r,e.querySelectorAll(s));}); return window.$.call(null,r); },
+            each: function(f) { for(var i=0;i<this.length;i++) f.call(this[i],i,this[i]); return this; },
+            removeClass: function(c) { this.forEach(function(e){e.classList.remove(c);}); return this; },
+            addClass: function(c) { this.forEach(function(e){e.classList.add(c);}); return this; },
+            trigger: function(e,t) { this.forEach(function(el){el.dispatchEvent(new Event(e,{bubbles:true}));}); return this; },
+          });
         };
-        $.extend = function(o) { Object.assign($.fn, o); };
-        $.ajax = function(opt) { return fetch(opt.url,{method:opt.type||'GET',body:opt.data}).then(r=>r.json()); };
-        $.getJSON = function(u,d,c) { return $.ajax({url:u,data:d,success:c}); };
-        window.jQuery = window.$;
-      `;
-      route.fulfill({ status: 200, contentType: 'application/javascript', body: stub });
+        window.jQuery.ready = window.$.ready = function(f) { if (document.readyState!=='loading') f(); else document.addEventListener('DOMContentLoaded',f); };
+        window.jQuery.support = {};
+        $.ajax = function(o) { return fetch(o.url,{method:o.type||'GET',body:o.data}).then(function(r){return r.json();}).catch(function(){}); };
+      `});
     } else {
       route.continue();
     }
@@ -120,14 +108,22 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {
-    console.warn('goto 超时，开始轮询等待');
-  });
+  await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
 
   let ready = false;
   for (let i = 0; i < 90; i++) {
     const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
     if (hasForm) { ready = true; break; }
+    // also check iframes
+    const frameForm = await page.evaluate(() => {
+      for (const f of document.querySelectorAll('iframe')) {
+        try {
+          if (f.contentDocument?.getElementById('TANGRAM__PSP_4__userName')) return true;
+        } catch(e) {}
+      }
+      return false;
+    }).catch(() => false);
+    if (frameForm) { ready = true; break; }
     const htmlLen = await page.evaluate(() => document.body?.innerHTML?.length || 0).catch(() => 0);
     if (i % 10 === 0) console.log(`等待表单... body=${htmlLen}B i=${i + 1}/90`);
     await page.waitForTimeout(2000);
