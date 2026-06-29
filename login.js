@@ -43,52 +43,40 @@ function parseKey(key) {
   const creds = parseKey(key);
   if (!creds) {
     console.error('用法: LOGIN_KEY=user:pass node login.js');
-    console.error('或者:  node login.js "user:pass"');
     process.exit(1);
   }
 
-  // 最终目标：直接访问 iaas 或 miaoda 做验证
-  const targetChecks = [
-    { match: '**/console.bce.baidu.com/**', label: 'console.bce' },
-    { match: '**/www.miaoda.cn/**', label: 'miaoda.cn' },
-    { match: '**/passport.baidu.com/**?login*', label: 'passport.login', isLogin: true },
-  ];
-
-  const loginUrl = 'https://login.bce.baidu.com/?redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
-  const finalTarget = 'https://console.bce.baidu.com/';
+  // passport.baidu.com 比 BCE 登录页加载快得多
+  const loginUrl = 'https://passport.baidu.com/v2/?login';
+  const targetUrl = 'https://www.miaoda.cn/';
 
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    ignoreHTTPSErrors: true,
   });
   const page = await context.newPage();
 
-  page.on('pageerror', err => console.error('[页面异常]', err.message));
-
-  // 只拦截 bce.bdstatic.com（超时源），其他资源正常加载
+  // 拦截 bce.bdstatic.com（超时源），其他资源（含真实 jQuery）正常加载
   await page.route('**/*', route => {
-    const url = route.request().url();
-    if (url.includes('bce.bdstatic.com')) {
+    if (route.request().url().includes('bce.bdstatic.com')) {
       route.abort('timedout');
     } else {
       route.continue();
     }
   });
 
-  // —————— 1. 直接访问 console.bce.baidu.com 验证 Cookie ——————
+  // —————— Cookie 验证 ——————
   const cached = loadCachedCookies();
   if (cached) {
     await context.addCookies(cached);
     console.log('发现缓存 Cookie，直接访问目标...');
-    await page.goto(finalTarget, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(3000);
     const afterUrl = page.url();
-    // 如果最终没被踢回 login 页，就算有效
-    if (!afterUrl.includes('login')) {
+    if (!afterUrl.includes('login') && !afterUrl.includes('passport')) {
       console.log('Cookie 有效');
       saveCookies(cached);
       await browser.close();
@@ -97,131 +85,72 @@ function parseKey(key) {
     console.log('Cookie 已过期，重新登录');
   }
 
-  // —————— 2. 去 BCE 登录页 ——————
+  // —————— 登录 ——————
   console.log('前往登录页...');
-  await page.goto(loginUrl, { waitUntil: 'load', timeout: 120000 }).catch(() => {});
+  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
 
+  // 等待表单出现（passport 页面通常 <10 秒）
   console.log('等待页面加载...');
   let ready = false;
   for (let i = 0; i < 30; i++) {
-    const hasForm = await page.evaluate(() => {
-      return !!document.getElementById('TANGRAM__PSP_4__userName') ||
-             !!document.getElementById('TANGRAM__PSP_3__userName');
-    }).catch(() => false);
+    const hasForm = await page.evaluate(() =>
+      !!document.getElementById('TANGRAM__PSP_3__userName')
+    ).catch(() => false);
     if (hasForm) { ready = true; break; }
-    const url = page.url();
-    // 如果被重定向到非登录页，提前退出
-    if (!url.includes('login') && !url.includes('passport')) {
-      console.log('已被重定向，URL:', url);
-      ready = true;
-      break;
-    }
-    if (i % 10 === 0) console.log(`等待表单... url=${url} i=${i + 1}/90`);
+    if (i % 5 === 0) console.log(`等待表单... i=${i + 1}/30`);
     await page.waitForTimeout(2000);
   }
-  console.log();
-
-  const currentUrl = page.url();
-  // 已被重定向 → 无需登录
-  if (!currentUrl.includes('login') && !currentUrl.includes('passport')) {
-    console.log('无需登录，已跳转到:', currentUrl);
-    const cookies = await context.cookies();
-    saveCookies(cookies);
-    await browser.close();
-    return;
-  }
-
   if (!ready) {
-    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
-    console.error('表单未加载 - 内容:', text);
+    console.error('表单未加载');
     process.exit(1);
   }
-
   console.log('表单已就绪');
 
-  // 自动检测 TANGRAM 版本
-  const version = await page.evaluate(() => {
-    if (document.getElementById('TANGRAM__PSP_4__userName')) return '4';
-    if (document.getElementById('TANGRAM__PSP_3__userName')) return '3';
-    return null;
-  });
-  console.log(`TANGRAM 版本: PSP_${version}`);
-  if (!version) {
-    console.error('未找到登录表单');
-    process.exit(1);
-  }
-
+  // 填写表单
   console.log('填写表单...');
-  const fillResult = await page.evaluate(({ version, username, password }) => {
-    const id = (name) => `TANGRAM__PSP_${version}__${name}`;
-    const u = document.getElementById(id('userName'));
-    const p = document.getElementById(id('password'));
-    if (!u || !p) return '未找到输入框';
+  await page.fill('#TANGRAM__PSP_3__userName', creds.username);
+  await page.fill('#TANGRAM__PSP_3__password', creds.password);
+  // 勾选"记住我"
+  const cb = page.locator('#TANGRAM__PSP_3__memberPass');
+  if (await cb.isVisible()) await cb.check();
+  console.log('表单已填写');
 
-    u.value = username;
-    u.dispatchEvent(new Event('input', { bubbles: true }));
-    p.value = password;
-    p.dispatchEvent(new Event('input', { bubbles: true }));
+  await page.waitForTimeout(500);
 
-    const cb = document.getElementById(id('memberPass'));
-    if (cb && !cb.checked) {
-      cb.checked = true;
-      cb.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
-    return 'ok';
-  }, { version, ...creds });
-  console.log('填写结果:', fillResult);
-  if (fillResult !== 'ok') {
-    console.error('填写失败:', fillResult);
-    process.exit(1);
-  }
-
-  await page.waitForTimeout(1000);
-
+  // Playwright 原生点击，模拟真实用户操作
   console.log('提交登录...');
-  await page.evaluate((version) => {
-    const id = (name) => `TANGRAM__PSP_${version}__${name}`;
-    const form = document.getElementById(id('form'));
-    if (form) {
-      form.requestSubmit();
-      return;
-    }
-    const btn = document.getElementById(id('submit'));
-    if (btn) btn.click();
-  }, version);
+  await page.click('#TANGRAM__PSP_3__submit', { force: true, timeout: 10000 }).catch(async () => {
+    // 如果点不到，尝试回车
+    await page.press('#TANGRAM__PSP_3__password', 'Enter');
+  });
 
-  await page.waitForTimeout(5000);
-
+  // 等待登录完成——检测 URL 离开 passport/login
   console.log('等待登录完成...');
-
   let loginDone = false;
-  let currentUrl2 = '';
-  for (let i = 0; i < 30; i++) {
-    currentUrl2 = page.url();
-    if (!currentUrl2.includes('passport.baidu.com') && !currentUrl2.includes('login')) {
+  let finalUrl = '';
+  for (let i = 0; i < 60; i++) {
+    finalUrl = page.url();
+    if (!finalUrl.includes('passport.baidu.com') && !finalUrl.includes('/login')) {
       loginDone = true;
       break;
     }
+    // 检查是否有错误提示
+    const errMsg = await page.evaluate(() => {
+      const el = document.querySelector('.pass-error, .errmsg, .error-tip, [class*="error"]');
+      return el?.textContent?.trim() || '';
+    }).catch(() => '');
+    if (errMsg && i % 5 === 0) console.log('当前错误:', errMsg);
     await page.waitForTimeout(2000);
   }
 
-  if (loginDone) {
-    console.log('登录成功，当前 URL:', currentUrl2 || page.url());
-  } else {
-    const errInfo = await page.evaluate(() => {
-      const errEl = document.querySelector('.pass-error, .error, .errmsg, [class*="error"], .tip');
-      const errText = errEl?.textContent?.trim();
-      const allText = document.body?.innerText?.slice(0, 1000);
-      return { errText, allText };
-    }).catch(() => ({}));
-    console.error('登录失败 - 错误:', errInfo.errText);
-    console.error('页面内容:', errInfo.allText);
+  if (!loginDone) {
+    const content = await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A');
+    console.error('登录失败，页面内容:', content);
     process.exit(1);
   }
 
+  console.log('登录成功，当前 URL:', finalUrl);
   const cookies = await context.cookies();
   saveCookies(cookies);
-
   await browser.close();
 })();
