@@ -103,16 +103,36 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  console.log('页面已渲染，点击账号登录标签...');
+  console.log('页面已渲染，查找登录标签...');
+
+  const tabs = await page.evaluate(() => {
+    const all = document.querySelectorAll('div, span, a, li, label, button, p, section');
+    return [...all]
+      .filter(e => e.offsetParent !== null && e.textContent?.trim())
+      .map(e => ({
+        text: e.textContent?.trim()?.slice(0, 40),
+        tag: e.tagName,
+        id: e.id,
+        class: e.className?.slice(0, 30),
+        rect: e.getBoundingClientRect ? JSON.stringify({ w: e.offsetWidth, h: e.offsetHeight }) : '',
+      }));
+  });
+  const loginTabs = tabs.filter(t => /账号登录/.test(t.text) || /密码登录/.test(t.text));
+  console.log('登录相关可见元素:', JSON.stringify(loginTabs, null, 2));
 
   const tabClicked = await page.evaluate(() => {
-    const el = [...document.querySelectorAll('div, span, a, li, label, button')].find(e =>
-      /^账号登录$/.test(e.textContent?.trim()) && e.offsetParent !== null
-    );
+    const all = document.querySelectorAll('div, span, a, li, label, button, p, section');
+    const el = [...all].find(e => {
+      if (e.offsetParent === null) return false;
+      const t = e.textContent?.trim() || '';
+      return t === '账号登录' || t === '密码登录' || /^账号登录/.test(t);
+    });
     if (el) { el.click(); return true; }
-    const el2 = [...document.querySelectorAll('div, span, a, li, label, button')].find(e =>
-      e.textContent?.includes('账号') && e.textContent?.includes('登录') && e.offsetParent !== null
-    );
+
+    const el2 = [...all].find(e => {
+      if (e.offsetParent === null) return false;
+      return e.textContent?.includes('账号') && e.textContent?.includes('登录');
+    });
     if (el2) { el2.click(); return true; }
     return false;
   });
