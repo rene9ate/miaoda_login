@@ -47,7 +47,7 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  const loginUrl = 'https://login.bce.baidu.com/?redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
+  const loginUrl = 'https://passport.baidu.com/v2/?login&redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
   const targetPattern = '**/console.bce.baidu.com/**';
 
   const browser = await chromium.launch({
@@ -65,32 +65,10 @@ function parseKey(key) {
 
   await page.route('**/*', route => {
     const url = route.request().url();
-    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
-        /(hm\.baidu|analytics)/i.test(url)) {
+    if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url)) {
       route.abort();
     } else if (/jquery/i.test(url)) {
-      route.fulfill({ status: 200, contentType: 'application/javascript', body: `
-        window.jQuery = window.$ = function(sel) {
-          var items = typeof sel === 'string' ? document.querySelectorAll(sel) : sel || [];
-          return Object.assign(Array.from(items), {
-            ready: function(f) { if (typeof sel === 'function') sel(); if (f) f(); return this; },
-            val: function(v) { if(v===undefined) return this[0]?.value; this.forEach(function(e){e.value=v;}); return this; },
-            on: function(e,f) { this.forEach(function(el){el.addEventListener(e,f);}); return this; },
-            click: function(f) { if(f) this.on('click',f); else this[0]?.click(); return this; },
-            attr: function(n,v) { if(v===undefined) return this[0]?.getAttribute(n); this.forEach(function(e){e.setAttribute(n,v);}); return this; },
-            find: function(s) { var r=[]; this.forEach(function(e){r.push.apply(r,e.querySelectorAll(s));}); return window.$(r); },
-            each: function(f) { for(var i=0;i<this.length;i++) f.call(this[i],i,this[i]); return this; },
-            removeClass: function(c) { this.forEach(function(e){e.classList.remove(c);}); return this; },
-            addClass: function(c) { this.forEach(function(e){e.classList.add(c);}); return this; },
-            trigger: function(e) { this.forEach(function(el){el.dispatchEvent(new Event(e,{bubbles:true}));}); return this; },
-          });
-        };
-        window.jQuery.ready = window.$.ready = function(f) { if (document.readyState!=='loading') f(); else document.addEventListener('DOMContentLoaded',f); };
-        $.ajax = function(o) { try { return fetch(o.url,{method:o.type||'GET',body:o.data}).then(function(r){return r.json();}); } catch(e){} };
-        console.log('jQuery stub loaded');
-      `});
-    } else if (/(\.css|\.js)/i.test(url) && url.includes('bdstatic')) {
-      route.continue();
+      route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.$=function(s){var e=typeof s==="string"?document.querySelectorAll(s):s||[];return Object.assign(Array.from(e),{val:function(v){if(v===undefined)return this[0]?.value;this.forEach(function(x){x.value=v;});return this;},on:function(e,f){this.forEach(function(x){x.addEventListener(e,f);});return this;},click:function(f){if(f)this.on("click",f);else this[0]?.click();return this;},attr:function(n,v){if(v===undefined)return this[0]?.getAttribute(n);this.forEach(function(x){x.setAttribute(n,v);});return this;},each:function(f){for(var i=0;i<this.length;i++)f.call(this[i],i,this[i]);return this;},find:function(s){var r=[];this.forEach(function(x){r.push.apply(r,x.querySelectorAll(s));});return window.$(r);},trigger:function(e){this.forEach(function(x){x.dispatchEvent(new Event(e,{bubbles:true}));});return this;}});};window.jQuery=window.$;$.ajax=function(o){try{return fetch(o.url,{method:o.type||"GET",body:o.data}).then(function(r){return r.json();});}catch(e){}};' });
     } else {
       route.continue();
     }
