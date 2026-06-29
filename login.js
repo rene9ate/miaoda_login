@@ -97,73 +97,71 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  await page.evaluate(() => {
-    const tab = [...document.querySelectorAll('div, span, a, li, label')].find(el =>
-      el.textContent?.trim() === '账号登录' && el.offsetParent !== null
+  const tabClicked = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('div, span, a, li, label, button')].find(e =>
+      e.textContent?.trim() === '账号登录' && e.offsetParent !== null
     );
-    if (tab) tab.click();
-  });
-  await page.waitForTimeout(1500);
-
-  console.log('填写表单...');
-  const fillResult = await page.evaluate(({ username, password }) => {
-    const userEl = document.getElementById('uc-common-account');
-    const passEl = document.getElementById('ucsl-password-edit') || document.getElementById('uc-common-password');
-
-    const errors = [];
-    if (!userEl) errors.push('用户名框不存在');
-    else {
-      userEl.value = username;
-      userEl.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      userEl.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
-    if (!passEl) errors.push('密码框不存在');
-    else {
-      passEl.value = password;
-      passEl.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      passEl.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
-    const agreements = document.querySelectorAll('input[type="checkbox"], [class*="agree"], [class*="protocol"], [class*="checkbox"]');
-    agreements.forEach(el => {
-      if (el.type === 'checkbox') {
-        if (!el.checked) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
-      } else {
-        el.click();
-      }
-    });
-
-    return errors.length ? errors.join('; ') : 'ok';
-  }, creds);
-
-  console.log('表单填写结果:', fillResult);
-  await page.waitForTimeout(1000);
-
-  const ready = await page.evaluate(() => {
-    const btn = document.querySelector('button[type="submit"]') ||
-                document.querySelector('[class*="submit"]') ||
-                document.querySelector('[class*="login"]');
-    if (btn) { btn.click(); return true; }
+    if (el) { el.click(); return true; }
+    const el2 = [...document.querySelectorAll('div, span, a, li, label, button')].find(e =>
+      e.textContent?.includes('账号') && e.textContent?.includes('登录') && e.offsetParent !== null
+    );
+    if (el2) { el2.click(); return true; }
     return false;
   });
+  if (tabClicked) console.log('已点击"账号登录"标签');
+  else console.warn('未找到"账号登录"标签，尝试继续');
 
-  if (!ready) {
-    const btns = await page.evaluate(() =>
-      [...document.querySelectorAll('button, [role="button"], .btn, [class*="btn"], [class*="button"]')]
-        .filter(el => el.offsetParent !== null)
-        .map(el => ({ text: el.textContent?.trim()?.slice(0, 30), id: el.id, class: el.className?.slice(0, 40) }))
+  await page.waitForTimeout(2000);
+
+  console.log('填写表单...');
+  await page.evaluate(({ username, password }) => {
+    const u = document.getElementById('uc-common-account');
+    if (u) { u.value = username; u.dispatchEvent(new Event('input', { bubbles: true })); }
+
+    const p = document.getElementById('ucsl-password-edit') || document.getElementById('uc-common-password');
+    if (p) { p.value = password; p.dispatchEvent(new Event('input', { bubbles: true })); }
+  }, creds);
+  await page.waitForTimeout(500);
+
+  const agreeText = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('div, span, label, i, em')].find(e =>
+      /阅读并同意|用户协议|隐私政策/.test(e.textContent) && e.offsetParent !== null
     );
-    console.log('页面可见按钮:', JSON.stringify(btns, null, 2));
-    const hit = btns.find(b => b.text?.includes('登录'));
-    if (hit && hit.id) { await page.click('#' + hit.id); console.log('已点击:', hit.text); }
-    else { console.error('未找到登录按钮'); process.exit(1); }
+    if (el) { el.click(); return '已点同意'; }
+    const cb = document.querySelector('input[type="checkbox"]');
+    if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); return '已勾选框'; }
+    return '未找到同意';
+  });
+  console.log('协议处理:', agreeText);
+  await page.waitForTimeout(500);
+
+  const buttons = await page.evaluate(() =>
+    [...document.querySelectorAll('button, [role="button"]')]
+      .filter(e => e.offsetParent !== null)
+      .map(e => ({ text: e.textContent?.trim()?.slice(0, 30), id: e.id, type: e.type }))
+  );
+  console.log('可见按钮:', JSON.stringify(buttons, null, 2));
+
+  let loginBtn = buttons.find(b => /登录|submit/.test(b.text || ''));
+  let btnId = loginBtn?.id;
+
+  if (!btnId) {
+    const all = await page.evaluate(() =>
+      [...document.querySelectorAll('button')].map(e => ({ text: e.textContent?.trim()?.slice(0, 30), id: e.id }))
+    );
+    console.log('所有按钮:', JSON.stringify(all, null, 2));
+    loginBtn = all.find(b => /登录|submit/.test(b.text || ''));
+    btnId = loginBtn?.id;
   }
 
-  console.log('已点击登录，等待跳转...');
-  await page.waitForTimeout(3000);
+  if (!btnId) {
+    console.error('未找到登录按钮');
+    process.exit(1);
+  }
 
-  await page.waitForTimeout(5000);
+  await page.click('#' + btnId);
+  console.log('已点击登录按钮:', loginBtn?.text);
+  await page.waitForTimeout(2000);
 
   try {
     await page.waitForURL(targetPattern, { timeout: 60000 });
