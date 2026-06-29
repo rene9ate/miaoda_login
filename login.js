@@ -47,7 +47,7 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  const loginUrl = 'https://passport.baidu.com/v2/?login&redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
+  const loginUrl = 'https://passport.baidu.com/v2/?login';
   const targetPattern = '**/console.bce.baidu.com/**';
 
   const browser = await chromium.launch({
