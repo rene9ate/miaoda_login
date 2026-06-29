@@ -92,40 +92,11 @@ function parseKey(key) {
 
   console.log('等待页面加载...');
   let ready = false;
-  for (let i = 0; i < 60; i++) {
-    const state = await page.evaluate(() => {
-      const hasForm = !!document.getElementById('TANGRAM__PSP_4__userName');
-      const all = [...document.querySelectorAll('*')].filter(e => e.offsetParent !== null && e.textContent?.trim());
-      const linkEl = all.find(e => /用户名登录/.test(e.textContent?.trim()));
-      const linkTexts = all.filter(e => /用户/.test(e.textContent)).map(e => e.textContent?.trim()?.slice(0, 30));
-      return { hasForm, hasLink: !!linkEl, linkTexts: linkTexts.slice(0, 10) };
-    }).catch(() => ({ hasForm: false, hasLink: false, linkTexts: [] }));
-    
-    if (state.hasForm) { ready = true; break; }
-    
-    if (state.hasLink && i === 0) {
-      console.log('找到用户名登录，先检查页面输入框...');
-      const inputs = await page.evaluate(() =>
-        [...document.querySelectorAll('input')].map(el => ({
-          id: el.id, name: el.name, type: el.type, placeholder: el.placeholder,
-          className: el.className?.slice(0, 40)
-        }))
-      );
-      console.log('页面 inputs:', JSON.stringify(inputs, null, 2));
-    }
-    
-    if (state.hasLink && i < 3) {
-      console.log('点击用户名登录...');
-      await page.evaluate(() => {
-        const el = [...document.querySelectorAll('a, span, div, label, button')].find(e =>
-          /用户名登录/.test(e.textContent?.trim()) && e.offsetParent !== null
-        );
-        if (el) el.click();
-      });
-      await page.waitForTimeout(5000);
-    }
-    
-    if (i % 10 === 0) console.log(`等待... hasLink=${state.hasLink} linkTexts=${JSON.stringify(state.linkTexts)} i=${i + 1}/60`);
+  for (let i = 0; i < 30; i++) {
+    const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_3__userName')).catch(() => false);
+    if (hasForm) { ready = true; break; }
+    const text = await page.evaluate(() => document.body?.innerText?.slice(0, 80)).catch(() => '');
+    if (i % 5 === 0) console.log(`等待表单... text="${text}" i=${i + 1}/30`);
     await page.waitForTimeout(2000);
   }
   console.log();
@@ -140,66 +111,40 @@ function parseKey(key) {
 
   console.log('填写表单...');
   const fillResult = await page.evaluate(({ username, password }) => {
-    // 优先 TANGRAM 老版（原用户脚本用的）
-    let u = document.getElementById('TANGRAM__PSP_4__userName');
-    let p = document.getElementById('TANGRAM__PSP_4__password');
-    let formType = 'tangram';
-
-    if (!u || !p) {
-      // 回退：新版 BCE 表单
-      u = document.getElementById('uc-common-account');
-      p = document.getElementById('ucsl-password-edit') || document.getElementById('uc-common-password');
-      formType = 'bce';
-    }
-
-    if (!u || !p) {
-      return '未找到用户名/密码输入框';
-    }
+    const u = document.getElementById('TANGRAM__PSP_3__userName');
+    const p = document.getElementById('TANGRAM__PSP_3__password');
+    if (!u || !p) return '未找到输入框';
 
     u.value = username;
     u.dispatchEvent(new Event('input', { bubbles: true }));
-    u.dispatchEvent(new Event('change', { bubbles: true }));
-
     p.value = password;
     p.dispatchEvent(new Event('input', { bubbles: true }));
-    p.dispatchEvent(new Event('change', { bubbles: true }));
 
-    // 勾选同意复选框
-    const cbs = document.querySelectorAll('input[type="checkbox"]');
-    cbs.forEach(cb => {
-      if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); }
-    });
+    const cb = document.getElementById('TANGRAM__PSP_3__memberPass');
+    if (cb && !cb.checked) {
+      cb.checked = true;
+      cb.dispatchEvent(new Event('change', { bubbles: true }));
+    }
 
-    return 'ok: ' + formType;
+    return 'ok';
   }, creds);
   console.log('填写结果:', fillResult);
-  if (!fillResult.startsWith('ok')) {
+  if (fillResult !== 'ok') {
     console.error('填写失败:', fillResult);
     process.exit(1);
   }
 
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(500);
 
   console.log('提交登录...');
-  const submitResult = await page.evaluate(() => {
-    const btn = document.getElementById('TANGRAM__PSP_4__submit');
-    if (!btn) return '未找到提交按钮';
-
-    // 模拟真实点击
-    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-    btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-
-    // 备用：提交表单
-    const form = btn.closest('form');
-    if (form && !form.checkValidity()) return '表单验证失败';
-    if (form) {
-      setTimeout(() => { if (form) form.submit(); }, 500);
+  await page.evaluate(() => {
+    const btn = document.getElementById('TANGRAM__PSP_3__submit');
+    if (btn) {
+      btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
-
-    return '已触发点击';
   });
-  console.log('提交结果:', submitResult);
 
   await page.waitForTimeout(3000);
 
@@ -213,7 +158,7 @@ function parseKey(key) {
       loginDone = true;
       break;
     }
-    const formGone = await page.evaluate(() => !document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
+    const formGone = await page.evaluate(() => !document.getElementById('TANGRAM__PSP_3__userName')).catch(() => false);
     if (formGone) {
       loginDone = true;
       break;
