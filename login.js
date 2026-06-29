@@ -103,18 +103,26 @@ function parseKey(key) {
     
     if (state.hasForm) { ready = true; break; }
     
-    if (state.hasLink) {
-      console.log('找到用户名登录，点击...');
+    if (state.hasLink && i === 0) {
+      console.log('找到用户名登录，先检查页面输入框...');
+      const inputs = await page.evaluate(() =>
+        [...document.querySelectorAll('input')].map(el => ({
+          id: el.id, name: el.name, type: el.type, placeholder: el.placeholder,
+          className: el.className?.slice(0, 40)
+        }))
+      );
+      console.log('页面 inputs:', JSON.stringify(inputs, null, 2));
+    }
+    
+    if (state.hasLink && i < 3) {
+      console.log('点击用户名登录...');
       await page.evaluate(() => {
-        const el = [...document.querySelectorAll('*')].find(e =>
+        const el = [...document.querySelectorAll('a, span, div, label, button')].find(e =>
           /用户名登录/.test(e.textContent?.trim()) && e.offsetParent !== null
         );
-        if (el) { el.click(); return true; }
-        return false;
+        if (el) el.click();
       });
-      await page.waitForTimeout(3000);
-      const formNow = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
-      if (formNow) { ready = true; break; }
+      await page.waitForTimeout(5000);
     }
     
     if (i % 10 === 0) console.log(`等待... hasLink=${state.hasLink} linkTexts=${JSON.stringify(state.linkTexts)} i=${i + 1}/60`);
