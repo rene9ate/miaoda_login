@@ -106,8 +106,33 @@ function parseKey(key) {
   console.log('按钮:', JSON.stringify(pageInfo.buttons, null, 2));
 
   if (pageInfo.inputs.length === 0) {
-    console.error('未找到输入框，页面文字:', pageInfo.bodyText);
-    process.exit(1);
+    console.log('未发现输入框，尝试点击登录切换按钮...');
+    const tabTexts = ['百度账号', '密码登录', '账号密码', '登录'];
+    for (const text of tabTexts) {
+      const clicked = await page.evaluate((t) => {
+        const el = [...document.querySelectorAll('div, span, a, button, li, label')].find(e =>
+          e.textContent?.trim() === t && e.offsetParent !== null
+        );
+        if (el) { el.click(); return true; }
+        return false;
+      }, text);
+      if (clicked) {
+        console.log('已点击:', text);
+        await page.waitForTimeout(2000);
+        break;
+      }
+    }
+    const retry = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('input')).map(el => ({
+        id: el.id, name: el.name, type: el.type, placeholder: el.placeholder,
+      }))
+    );
+    console.log('点击后输入框:', JSON.stringify(retry, null, 2));
+    if (retry.length === 0) {
+      console.error('仍未找到输入框，页面文字:', pageInfo.bodyText);
+      process.exit(1);
+    }
+    pageInfo.inputs = retry; pageInfo.buttons = [];
   }
 
   const userCandidates = pageInfo.inputs.filter(i => i.type === 'text' && i.visible);
