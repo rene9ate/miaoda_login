@@ -59,7 +59,7 @@ function parseKey(key) {
   if (cached) {
     await context.addCookies(cached);
     console.log('🔑 发现缓存 Cookie，尝试直接访问目标页面');
-    await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     try {
       await page.waitForURL(targetPattern, { timeout: 8000 });
       console.log('✅ Cookie 有效，登录成功!');
@@ -73,7 +73,7 @@ function parseKey(key) {
   }
 
   // Cookie 无效或不存在，执行完整登录
-  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 });
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => console.warn('⏳ 页面加载超时，继续等待关键元素'));
 
   await page.waitForSelector('#TANGRAM__PSP_4__userName', { timeout: 10000 });
 
