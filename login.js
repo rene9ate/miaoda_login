@@ -69,7 +69,6 @@ function parseKey(key) {
     // 只要最终没落到 login 或 passport 页面就算有效
     if (afterUrl.includes('miaoda.cn') || (!afterUrl.includes('login') && !afterUrl.includes('passport'))) {
       console.log('Cookie 有效');
-      saveCookies(cached);
       await browser.close();
       return;
     }

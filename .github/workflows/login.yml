@@ -54,7 +54,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: cache
-          key: cookies-${{ runner.os }}-${{ github.run_id }}
+          key: cookies-${{ runner.os }}-${{ hashFiles('cache/cookies.json') || '0' }}
 
       - name: 登录失败上报 Issue
         if: steps.login.outcome != 'success'
