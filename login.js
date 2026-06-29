@@ -144,18 +144,19 @@ function parseKey(key) {
   console.log('页面已渲染，查找登录标签...');
 
   const tabs = await page.evaluate(() => {
-    const all = document.querySelectorAll('div, span, a, li, label, button, p, section');
+    const all = document.querySelectorAll('*');
     return [...all]
       .filter(e => e.offsetParent !== null && e.textContent?.trim())
       .map(e => ({
-        text: e.textContent?.trim()?.slice(0, 40),
+        text: e.textContent?.trim()?.slice(0, 60),
         tag: e.tagName,
         id: e.id,
         class: e.className?.slice(0, 30),
-        rect: e.getBoundingClientRect ? JSON.stringify({ w: e.offsetWidth, h: e.offsetHeight }) : '',
       }));
   });
-  const loginTabs = tabs.filter(t => /账号登录/.test(t.text) || /密码登录/.test(t.text));
+  console.log('所有可见元素:', JSON.stringify(tabs, null, 2));
+
+  const loginTabs = tabs.filter(t => /账号登录|密码登录/.test(t.text));
   console.log('登录相关可见元素:', JSON.stringify(loginTabs, null, 2));
 
   const tabClicked = await page.evaluate(() => {
