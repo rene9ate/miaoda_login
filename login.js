@@ -60,6 +60,9 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
+  page.on('console', msg => console.log('[页面]', msg.text()));
+  page.on('pageerror', err => console.error('[页面错误]', err.message));
+
   await page.route('**/*', route => {
     const url = route.request().url();
     if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
@@ -68,24 +71,26 @@ function parseKey(key) {
     } else if (/jquery/i.test(url)) {
       route.fulfill({ status: 200, contentType: 'application/javascript', body: `
         window.jQuery = window.$ = function(sel) {
-          var el = typeof sel === 'function' ? null : document.querySelectorAll(sel);
-          return Object.assign(el || [], {
+          var items = typeof sel === 'string' ? document.querySelectorAll(sel) : sel || [];
+          return Object.assign(Array.from(items), {
             ready: function(f) { if (typeof sel === 'function') sel(); if (f) f(); return this; },
             val: function(v) { if(v===undefined) return this[0]?.value; this.forEach(function(e){e.value=v;}); return this; },
             on: function(e,f) { this.forEach(function(el){el.addEventListener(e,f);}); return this; },
-            attr: function(n,v) { if(v===undefined) return this[0]?.getAttribute(n); this.forEach(function(e){e.setAttribute(n,v);}); return this; },
             click: function(f) { if(f) this.on('click',f); else this[0]?.click(); return this; },
-            find: function(s) { var r=[]; this.forEach(function(e){r.push.apply(r,e.querySelectorAll(s));}); return window.$.call(null,r); },
+            attr: function(n,v) { if(v===undefined) return this[0]?.getAttribute(n); this.forEach(function(e){e.setAttribute(n,v);}); return this; },
+            find: function(s) { var r=[]; this.forEach(function(e){r.push.apply(r,e.querySelectorAll(s));}); return window.$(r); },
             each: function(f) { for(var i=0;i<this.length;i++) f.call(this[i],i,this[i]); return this; },
             removeClass: function(c) { this.forEach(function(e){e.classList.remove(c);}); return this; },
             addClass: function(c) { this.forEach(function(e){e.classList.add(c);}); return this; },
-            trigger: function(e,t) { this.forEach(function(el){el.dispatchEvent(new Event(e,{bubbles:true}));}); return this; },
+            trigger: function(e) { this.forEach(function(el){el.dispatchEvent(new Event(e,{bubbles:true}));}); return this; },
           });
         };
         window.jQuery.ready = window.$.ready = function(f) { if (document.readyState!=='loading') f(); else document.addEventListener('DOMContentLoaded',f); };
-        window.jQuery.support = {};
-        $.ajax = function(o) { return fetch(o.url,{method:o.type||'GET',body:o.data}).then(function(r){return r.json();}).catch(function(){}); };
+        $.ajax = function(o) { try { return fetch(o.url,{method:o.type||'GET',body:o.data}).then(function(r){return r.json();}); } catch(e){} };
+        console.log('jQuery stub loaded');
       `});
+    } else if (/(\.css|\.js)/i.test(url) && url.includes('bdstatic')) {
+      route.continue();
     } else {
       route.continue();
     }
@@ -95,7 +100,7 @@ function parseKey(key) {
   if (cached) {
     await context.addCookies(cached);
     console.log('发现缓存 Cookie，尝试直接访问');
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
     try {
       await page.waitForURL(targetPattern, { timeout: 15000 });
       console.log('Cookie 有效，登录成功');
@@ -110,22 +115,20 @@ function parseKey(key) {
 
   await page.goto(loginUrl, { waitUntil: 'commit', timeout: 30000 }).catch(() => {});
 
+  console.log('等待页面加载...');
   let ready = false;
-  for (let i = 0; i < 90; i++) {
-    const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_4__userName')).catch(() => false);
-    if (hasForm) { ready = true; break; }
-    // also check iframes
-    const frameForm = await page.evaluate(() => {
-      for (const f of document.querySelectorAll('iframe')) {
-        try {
-          if (f.contentDocument?.getElementById('TANGRAM__PSP_4__userName')) return true;
-        } catch(e) {}
-      }
-      return false;
-    }).catch(() => false);
-    if (frameForm) { ready = true; break; }
-    const htmlLen = await page.evaluate(() => document.body?.innerHTML?.length || 0).catch(() => 0);
-    if (i % 10 === 0) console.log(`等待表单... body=${htmlLen}B i=${i + 1}/90`);
+  for (let i = 0; i < 120; i++) {
+    const info = await page.evaluate(() => {
+      const body = document.body;
+      if (!body) return { ok: false, htmlLen: 0, text: 'no body' };
+      const text = body.innerText || '';
+      const htmlLen = body.innerHTML?.length || 0;
+      const hasTangram = !!document.getElementById('TANGRAM__PSP_4__userName');
+      const hasBceForm = !!document.getElementById('uc-common-account');
+      return { ok: hasTangram || hasBceForm, htmlLen, textLen: text.length, sample: text.slice(0, 100) };
+    }).catch(() => ({ ok: false, htmlLen: -1, text: 'evaluate failed' }));
+    if (info.ok) { ready = true; break; }
+    if (i % 10 === 0) console.log(`等待... body=${info.htmlLen}B text=${info.textLen}B sample="${info.sample}" i=${i + 1}/120`);
     await page.waitForTimeout(2000);
   }
   console.log();
