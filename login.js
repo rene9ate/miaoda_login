@@ -69,15 +69,6 @@ function parseKey(key) {
 
   page.on('pageerror', err => console.error('[页面异常]', err.message));
 
-  await page.route('**/*', route => {
-    const url = route.request().url();
-    if (/jquery/i.test(url)) {
-      route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.$=function(s){var e=typeof s==="string"?document.querySelectorAll(s):s||[];return Object.assign(Array.from(e),{val:function(v){if(v===undefined)return this[0]?.value;this.forEach(function(x){x.value=v;});return this;},on:function(e,f){this.forEach(function(x){x.addEventListener(e,f);});return this;},click:function(f){if(f)this.on("click",f);else this[0]?.click();return this;},attr:function(n,v){if(v===undefined)return this[0]?.getAttribute(n);this.forEach(function(x){x.setAttribute(n,v);});return this;},each:function(f){for(var i=0;i<this.length;i++)f.call(this[i],i,this[i]);return this;},find:function(s){var r=[];this.forEach(function(x){r.push.apply(r,x.querySelectorAll(s));});return window.$(r);},trigger:function(e){this.forEach(function(x){x.dispatchEvent(new Event(e,{bubbles:true}));});return this;}});};window.jQuery=window.$;' });
-    } else {
-      route.continue();
-    }
-  });
-
   // —————— 1. 直接访问 console.bce.baidu.com 验证 Cookie ——————
   const cached = loadCachedCookies();
   if (cached) {
