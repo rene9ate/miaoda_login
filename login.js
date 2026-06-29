@@ -47,7 +47,7 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  const loginUrl = 'https://passport.baidu.com/v2/?login';
+  const loginUrl = 'https://login.bce.baidu.com/?redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253Ftrack_id%25253Dpromolink-aj1ejsa8hn9c%26scope%3Duser_info%26state%3Dac3b67c9-d169-4cd9-be9c-fc0dbc08f926%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
   const targetPattern = '**/console.bce.baidu.com/**';
 
   const browser = await chromium.launch({
@@ -88,15 +88,18 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+  await page.goto(loginUrl, { waitUntil: 'load', timeout: 120000 }).catch(() => {});
 
   console.log('等待页面加载...');
   let ready = false;
-  for (let i = 0; i < 30; i++) {
-    const hasForm = await page.evaluate(() => !!document.getElementById('TANGRAM__PSP_3__userName')).catch(() => false);
+  for (let i = 0; i < 90; i++) {
+    const hasForm = await page.evaluate(() => {
+      return !!document.getElementById('TANGRAM__PSP_4__userName') ||
+             !!document.getElementById('TANGRAM__PSP_3__userName');
+    }).catch(() => false);
     if (hasForm) { ready = true; break; }
     const text = await page.evaluate(() => document.body?.innerText?.slice(0, 80)).catch(() => '');
-    if (i % 5 === 0) console.log(`等待表单... text="${text}" i=${i + 1}/30`);
+    if (i % 10 === 0) console.log(`等待表单... text="${text}" i=${i + 1}/90`);
     await page.waitForTimeout(2000);
   }
   console.log();
@@ -109,10 +112,23 @@ function parseKey(key) {
 
   console.log('表单已就绪');
 
+  // 自动检测 TANGRAM 版本
+  const version = await page.evaluate(() => {
+    if (document.getElementById('TANGRAM__PSP_4__userName')) return '4';
+    if (document.getElementById('TANGRAM__PSP_3__userName')) return '3';
+    return null;
+  });
+  console.log(`TANGRAM 版本: PSP_${version}`);
+  if (!version) {
+    console.error('未找到登录表单');
+    process.exit(1);
+  }
+
   console.log('填写表单...');
-  const fillResult = await page.evaluate(({ username, password }) => {
-    const u = document.getElementById('TANGRAM__PSP_3__userName');
-    const p = document.getElementById('TANGRAM__PSP_3__password');
+  const fillResult = await page.evaluate(({ version, username, password }) => {
+    const id = (name) => `TANGRAM__PSP_${version}__${name}`;
+    const u = document.getElementById(id('userName'));
+    const p = document.getElementById(id('password'));
     if (!u || !p) return '未找到输入框';
 
     u.value = username;
@@ -120,31 +136,33 @@ function parseKey(key) {
     p.value = password;
     p.dispatchEvent(new Event('input', { bubbles: true }));
 
-    const cb = document.getElementById('TANGRAM__PSP_3__memberPass');
+    const cb = document.getElementById(id('memberPass'));
     if (cb && !cb.checked) {
       cb.checked = true;
       cb.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     return 'ok';
-  }, creds);
+  }, { version, ...creds });
   console.log('填写结果:', fillResult);
   if (fillResult !== 'ok') {
     console.error('填写失败:', fillResult);
     process.exit(1);
   }
 
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(1000);
 
   console.log('提交登录...');
-  await page.evaluate(() => {
-    const btn = document.getElementById('TANGRAM__PSP_3__submit');
-    if (btn) {
-      btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-      btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await page.evaluate((version) => {
+    const id = (name) => `TANGRAM__PSP_${version}__${name}`;
+    const form = document.getElementById(id('form'));
+    if (form) {
+      form.requestSubmit();
+      return;
     }
-  });
+    const btn = document.getElementById(id('submit'));
+    if (btn) btn.click();
+  }, version);
 
   await page.waitForTimeout(5000);
 
