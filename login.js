@@ -62,16 +62,19 @@ function parseKey(key) {
   if (cached) {
     await context.addCookies(cached);
     console.log('发现缓存 Cookie，直接访问目标...');
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(3000);
+    await page.goto(targetUrl, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+    // 等待 OAuth 重定向链走完（miaoda → BCE → passport → BCE callback → miaoda）
+    await page.waitForTimeout(10000);
     const afterUrl = page.url();
-    if (!afterUrl.includes('login') && !afterUrl.includes('passport')) {
+    // 只要最终没落到 login 或 passport 页面就算有效
+    if (afterUrl.includes('miaoda.cn') || (!afterUrl.includes('login') && !afterUrl.includes('passport'))) {
       console.log('Cookie 有效');
       saveCookies(cached);
       await browser.close();
       return;
     }
-    console.log('Cookie 已过期，重新登录');
+    console.log('Cookie 已过期，删除旧文件');
+    try { fs.unlinkSync(CACHE_FILE); } catch {}
   }
 
   // —————— 登录 ——————

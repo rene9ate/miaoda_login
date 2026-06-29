@@ -31,7 +31,7 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package.json') }}
 
       - name: 恢复缓存 Cookie
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: cache
           key: cookies-${{ runner.os }}-${{ github.run_id }}
@@ -44,12 +44,20 @@ jobs:
 
       - name: 执行登录
         id: login
+        continue-on-error: true
         run: node login.js
         env:
           LOGIN_KEY: ${{ inputs.login_key || secrets.LOGIN_KEY }}
 
+      - name: 保存 Cookie 到缓存
+        if: steps.login.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: cookies-${{ runner.os }}-${{ github.run_id }}
+
       - name: 登录失败上报 Issue
-        if: failure()
+        if: steps.login.outcome != 'success'
         shell: bash
         run: |
           cat <<'ISSUE' > /tmp/issue-body.md
@@ -64,5 +72,6 @@ jobs:
             --title "一键登录失败 - $(date -u '+%Y-%m-%d %H:%M UTC')" \
             --body-file /tmp/issue-body.md \
             --label "bug"
+          exit 1
         env:
           GH_TOKEN: ${{ github.token }}
