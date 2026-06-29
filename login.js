@@ -63,8 +63,10 @@ function parseKey(key) {
   await page.route('**/*', route => {
     const url = route.request().url();
     if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|mp4|webm|avi|mp3|pdf)$/i.test(url) ||
-        /(hm\.baidu|analytics|jquery)/i.test(url)) {
+        /(hm\.baidu|analytics)/i.test(url)) {
       route.abort();
+    } else if (/jquery/i.test(url)) {
+      route.fulfill({ status: 200, contentType: 'application/javascript', body: '' });
     } else {
       route.continue();
     }
@@ -93,8 +95,11 @@ function parseKey(key) {
   for (let i = 0; i < 120; i++) {
     const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
     if (text.includes('百度账号') || text.includes('账号登录')) { ready = true; break; }
+    const htmlLen = await page.evaluate(() => document.body?.innerHTML?.length || 0).catch(() => 0);
+    if (i % 5 === 0) console.log(`等待渲染... body=${htmlLen}B i=${i + 1}/120`);
     await page.waitForTimeout(2000);
   }
+  console.log();
 
   if (!ready) {
     const url = page.url();
