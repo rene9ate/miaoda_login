@@ -72,7 +72,7 @@ function parseKey(key) {
   if (cached) {
     await context.addCookies(cached);
     console.log('发现缓存 Cookie，尝试直接访问目标页面');
-    await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     try {
       await page.waitForURL(targetPattern, { timeout: 15000 });
       console.log('Cookie 有效，登录成功!');
@@ -85,10 +85,9 @@ function parseKey(key) {
     }
   }
 
-  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 });
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => console.warn('domcontentloaded 超时，继续'));
 
-  await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => console.warn('network 未完全空闲，继续'));
-  await page.waitForTimeout(3000);
+  await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000, state: 'attached' }).catch(() => {});
 
   const pageInfo = await page.evaluate(() => {
     const inputs = Array.from(document.querySelectorAll('input')).map(el => ({
