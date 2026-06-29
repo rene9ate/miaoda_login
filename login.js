@@ -10,7 +10,7 @@ function loadCachedCookies() {
       return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
     }
   } catch (e) {
-    console.warn('⚠️ Cookie 缓存读取失败，将重新登录');
+    console.warn('Cookie 缓存读取失败，将重新登录');
   }
   return null;
 }
@@ -20,9 +20,9 @@ function saveCookies(cookies) {
     const dir = path.dirname(CACHE_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify(cookies, null, 2));
-    console.log('💾 Cookie 已缓存到', CACHE_FILE);
+    console.log('Cookie 已缓存到', CACHE_FILE);
   } catch (e) {
-    console.warn('⚠️ Cookie 缓存写入失败:', e.message);
+    console.warn('Cookie 缓存写入失败:', e.message);
   }
 }
 
@@ -37,7 +37,7 @@ function parseKey(key) {
 (async () => {
   const key = process.env.LOGIN_KEY || process.argv[2];
   if (!key) {
-    console.error('❌ 未提供登录凭据');
+    console.error('未提供登录凭据');
     process.exit(1);
   }
   const creds = parseKey(key);
@@ -58,6 +58,7 @@ function parseKey(key) {
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
       '--no-default-browser-check',
+      '--disable-sync',
     ],
   });
   const context = await browser.newContext({
@@ -67,73 +68,95 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
-  // 尝试复用缓存的 Cookie
   const cached = loadCachedCookies();
   if (cached) {
     await context.addCookies(cached);
-    console.log('🔑 发现缓存 Cookie，尝试直接访问目标页面');
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    console.log('发现缓存 Cookie，尝试直接访问目标页面');
+    await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
     try {
-      await page.waitForURL(targetPattern, { timeout: 8000 });
-      console.log('✅ Cookie 有效，登录成功!');
+      await page.waitForURL(targetPattern, { timeout: 15000 });
+      console.log('Cookie 有效，登录成功!');
       const cookies = await context.cookies();
       saveCookies(cookies);
       await browser.close();
       return;
     } catch {
-      console.log('⏳ Cookie 已过期，重新登录');
+      console.log('Cookie 已过期，重新登录');
     }
   }
 
-  // Cookie 无效或不存在，执行完整登录
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => console.warn('⏳ 页面加载超时，继续等待关键元素'));
+  await page.goto(loginUrl, { waitUntil: 'load', timeout: 60000 });
 
-  // 检查 iframe 中的登录表单
-  let loginFrame = null;
-  const frames = page.frames();
-  for (const f of frames) {
-    if (f.url().includes('passport.baidu.com') || f.url().includes('bce.baidu')) {
-      loginFrame = f;
-      break;
-    }
-  }
-  const target = loginFrame || page;
+  await page.waitForSelector('input[type="text"], input[type="email"], input[name="userName"], input[autocomplete="username"]', { timeout: 20000 });
 
-  const selectorExists = await target.waitForSelector('#TANGRAM__PSP_4__userName', { timeout: 15000 }).catch(() => null);
-  if (!selectorExists) {
-    const title = await page.title().catch(() => 'N/A');
-    const body = await page.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => 'N/A');
-    const html = await target.evaluate(() => document.querySelector('#passport-login-box')?.outerHTML?.slice(0, 1000) || document.body?.innerHTML?.slice(0, 1000)).catch(() => 'N/A');
-    console.error('❌ 未找到登录表单，页面标题:', title);
-    console.error('页面内容片段:', body);
-    console.error('页面 HTML 片段:', html);
-    console.error('iframe 数量:', frames.length, '当前 target URL:', target.url());
+  const inputs = await page.evaluate(() => {
+    const all = document.querySelectorAll('input');
+    return Array.from(all).map(el => ({
+      id: el.id,
+      name: el.name,
+      type: el.type,
+      placeholder: el.placeholder,
+      className: el.className?.slice(0, 60),
+      autocomplete: el.autocomplete,
+    }));
+  });
+  console.log('页面 input 元素:', JSON.stringify(inputs, null, 2));
+
+  if (inputs.length === 0) {
+    console.error('页面上没有找到 input 元素');
+    console.error('页面文字:', await page.evaluate(() => document.body?.innerText?.slice(0, 800)).catch(() => 'N/A'));
     process.exit(1);
   }
 
-  await target.fill('#TANGRAM__PSP_4__userName', creds.username);
-  await target.fill('#TANGRAM__PSP_4__password', creds.password);
+  const userInput = inputs.find(i => i.type === 'text' || i.autocomplete === 'username' || i.name?.toLowerCase().includes('user') || i.placeholder?.toLowerCase().includes('账号') || i.placeholder?.toLowerCase().includes('手机'));
+  const passInput = inputs.find(i => i.type === 'password');
+  const agreeInput = await page.locator('input[type="checkbox"]').first().isVisible().then(() => true).catch(() => false);
 
-  const agreeCheckbox = target.locator('#TANGRAM__PSP_4__isAgree');
-  if (!(await agreeCheckbox.isChecked())) {
-    await agreeCheckbox.check();
+  if (!userInput || !passInput) {
+    console.error('未找到用户名或密码输入框');
+    process.exit(1);
   }
 
-  await target.click('#TANGRAM__PSP_4__submit');
+  console.log('填入账号...');
+  await page.fill('#' + userInput.id, creds.username);
+  console.log('填入密码...');
+  await page.fill('#' + passInput.id, creds.password);
+
+  if (agreeInput) {
+    const cb = page.locator('input[type="checkbox"]').first();
+    if (!(await cb.isChecked())) {
+      await cb.check();
+      console.log('已勾选同意');
+    }
+  }
+
+  const submitBtn = await page.evaluate(() => {
+    const btn = document.querySelector('button[type="submit"], input[type="submit"], .submit-btn, button:has(span)');
+    if (btn) {
+      btn.click();
+      return 'ok';
+    }
+    return 'not found';
+  });
+
+  if (submitBtn === 'not found') {
+    console.error('未找到登录按钮');
+    process.exit(1);
+  }
+
+  console.log('已点击登录，等待跳转...');
 
   try {
-    await page.waitForURL(targetPattern, { timeout: 10000 });
-    console.log('✅ 登录成功!');
-
+    await page.waitForURL(targetPattern, { timeout: 15000 });
+    console.log('登录成功!');
     const cookies = await context.cookies();
     saveCookies(cookies);
-
   } catch (error) {
-    const errorMsg = await page.locator('.error-message, .errmsg').textContent().catch(() => null);
+    const errorMsg = await page.locator('.error-message, .errmsg, [class*="error"]').textContent().catch(() => null);
     if (errorMsg) {
-      console.error('❌ 登录失败:', errorMsg.trim());
+      console.error('登录失败:', errorMsg.trim());
     } else {
-      console.error('❌ 登录超时或跳转失败');
+      console.error('登录超时或跳转失败');
     }
     process.exit(1);
   }
