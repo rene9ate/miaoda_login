@@ -57,15 +57,6 @@ function parseKey(key) {
   });
   const page = await context.newPage();
 
-  // 只拦截 bce.bdstatic.com
-  await page.route('**/*', route => {
-    if (route.request().url().includes('bce.bdstatic.com')) {
-      route.abort('timedout');
-    } else {
-      route.continue();
-    }
-  });
-
   // —————— Cookie 验证 ——————
   const cached = loadCachedCookies();
   if (cached) {
@@ -164,16 +155,9 @@ function parseKey(key) {
   }, creds);
   console.log('API 响应:', JSON.stringify(result));
 
-  // 如果 API 返回了重定向，跟进
   if (result.ok) {
-    // 等待页面可能发生的重定向
-    await page.waitForTimeout(5000);
-    const finalUrl = page.url();
-    console.log('当前 URL:', finalUrl);
-
     const cookies = await context.cookies();
     saveCookies(cookies);
-    console.log('登录凭据已缓存');
   } else {
     console.error('登录失败');
     process.exit(1);
