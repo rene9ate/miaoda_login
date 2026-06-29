@@ -66,9 +66,7 @@ jobs:
         run: |
           gh cache list --key "cookies-Linux-" --json key,id --jq '
             .[] | select(.key != env.KEEP_KEY) | .id
-          ' | while read id; do
-            [ -n "$id" ] && gh cache delete "$id" --confirm
-          done
+          ' | while read id; do gh cache delete "$id" -y; done
 
       - name: 登录失败上报 Issue
         if: steps.login.outcome != 'success'
