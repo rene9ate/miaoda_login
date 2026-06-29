@@ -24,10 +24,15 @@ jobs:
         with:
           node-version: 20
 
+      - name: 缓存 Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package.json') }}
+
       - name: 安装依赖
         run: |
-          npm init -y
-          npm install playwright
+          npm install
           npx playwright install chromium
 
       - name: 执行登录
@@ -46,7 +51,7 @@ jobs:
           - **时间**: $(date -u '+%Y-%m-%d %H:%M UTC')
           - **运行编号**: [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-          请检查 LOGIN_KEY 是否正确或账号是否需要验证码。
+          请检查凭据或是否需要验证码。
           ISSUE
           gh issue create \
             --title "一键登录失败 - $(date -u '+%Y-%m-%d %H:%M UTC')" \
