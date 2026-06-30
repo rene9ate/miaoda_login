@@ -26,6 +26,24 @@ function saveCookies(cookies) {
   }
 }
 
+async function isCookieValid(page) {
+  try {
+    await page.goto('https://www.miaoda.cn/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(5000);
+    const result = await page.evaluate(async () => {
+      try {
+        const res = await fetch('https://www.miaoda.cn/api/v1/app/list', { credentials: 'include' });
+        if (res.status === 200) {
+          const data = await res.json();
+          return Array.isArray(data);
+        }
+        return false;
+      } catch { return false; }
+    });
+    return result;
+  } catch { return false; }
+}
+
 function parseKey(key) {
   if (!key || !key.includes(':')) return null;
   const [username, ...rest] = key.split(':');
@@ -46,8 +64,6 @@ function parseKey(key) {
     process.exit(1);
   }
 
-  const targetUrl = 'https://www.miaoda.cn/';
-
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -61,13 +77,9 @@ function parseKey(key) {
   const cached = loadCachedCookies();
   if (cached) {
     await context.addCookies(cached);
-    console.log('发现缓存 Cookie，直接访问目标...');
-    await page.goto(targetUrl, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
-    // 等待 OAuth 重定向链走完（miaoda → BCE → passport → BCE callback → miaoda）
-    await page.waitForTimeout(10000);
-    const afterUrl = page.url();
-    // 只要最终没落到 login 或 passport 页面就算有效
-    if (afterUrl.includes('miaoda.cn') || (!afterUrl.includes('login') && !afterUrl.includes('passport'))) {
+    console.log('发现缓存 Cookie，验证中...');
+    const valid = await isCookieValid(page);
+    if (valid) {
       console.log('Cookie 有效');
       await browser.close();
       return;
