@@ -26,17 +26,6 @@ function saveCookies(cookies) {
   }
 }
 
-async function isCookieValid(context) {
-  try {
-    const res = await context.request.get('https://www.miaoda.cn/api/v1/app/list');
-    if (res.status() === 200) return true;
-    // 如果是 OAuth 重定向导致的非 200，也判无效
-    return false;
-  } catch {
-    return false;
-  }
-}
-
 function parseKey(key) {
   if (!key || !key.includes(':')) return null;
   const [username, ...rest] = key.split(':');
@@ -77,13 +66,8 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     const cached = loadCachedCookies();
     if (cached) {
       await context.addCookies(cached);
-      console.log('发现缓存 Cookie，验证中...');
-      const valid = await isCookieValid(context);
-      if (valid) {
-        console.log('Cookie 有效');
-        return;
-      }
-    console.log('Cookie 已过期，重新登录');
+      console.log('使用缓存 Cookie');
+      return;
     }
 
     // —————— 登录 ——————
