@@ -66,7 +66,9 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     const cached = loadCachedCookies();
     if (cached) {
       await context.addCookies(cached);
-      console.log('使用缓存 Cookie');
+      console.log('使用缓存 Cookie，访问 miaoda.cn...');
+      await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+      console.log('当前页面:', page.url().slice(0, 80));
       return;
     }
 
@@ -148,6 +150,10 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     console.log('API 响应:', JSON.stringify(result));
 
     if (!result.ok) throw new Error('登录失败');
+
+    console.log('登录成功，访问 miaoda.cn...');
+    await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+    console.log('当前页面:', page.url().slice(0, 80));
 
     const cookies = await context.cookies();
     saveCookies(cookies);
