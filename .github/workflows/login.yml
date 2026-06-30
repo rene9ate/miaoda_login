@@ -67,7 +67,7 @@ jobs:
           gh cache list --key "cookies-Linux-" --json key,id --jq '
             .[] | select(.key != env.KEEP_KEY) | .id
           ' | while read id; do
-            echo "y" | gh cache delete "$id"
+            echo "y" | gh cache delete "$id" 2>/dev/null || true
           done
 
       - name: 登录失败上报 Issue
