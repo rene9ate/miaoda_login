@@ -26,20 +26,15 @@ function saveCookies(cookies) {
   }
 }
 
-async function isCookieValid(page) {
+async function isCookieValid(context) {
   try {
-    await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 60000 }).catch(() => {});
-    await page.waitForTimeout(5000);
-    const result = await page.evaluate(async () => {
-      try {
-        const res = await fetch('https://www.miaoda.cn/api/v1/app/list', { credentials: 'include' });
-        if (res.status === 200) return true;
-        if (res.status === 401 || res.status === 403) return false;
-        return false;
-      } catch { return false; }
-    });
-    return result;
-  } catch { return false; }
+    const res = await context.request.get('https://www.miaoda.cn/api/v1/app/list');
+    if (res.status() === 200) return true;
+    // 如果是 OAuth 重定向导致的非 200，也判无效
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function parseKey(key) {
@@ -83,7 +78,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     if (cached) {
       await context.addCookies(cached);
       console.log('发现缓存 Cookie，验证中...');
-      const valid = await isCookieValid(page);
+      const valid = await isCookieValid(context);
       if (valid) {
         console.log('Cookie 有效');
         return;
