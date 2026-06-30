@@ -52,134 +52,136 @@ function parseKey(key) {
   return { username, password };
 }
 
+let browser = null;
+
+async function cleanup() {
+  if (browser) {
+    try { await browser.close(); } catch {}
+    browser = null;
+  }
+}
+
+process.on('SIGINT', async () => { await cleanup(); process.exit(130); });
+process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
+
 (async () => {
-  const key = process.env.LOGIN_KEY || process.argv[2];
-  if (!key) {
-    console.error('未提供登录凭据');
-    process.exit(1);
-  }
-  const creds = parseKey(key);
-  if (!creds) {
-    console.error('用法: LOGIN_KEY=user:pass node login.js');
-    process.exit(1);
-  }
+  try {
+    const key = process.env.LOGIN_KEY || process.argv[2];
+    if (!key) throw new Error('请设置 LOGIN_KEY 环境变量');
+    const creds = parseKey(key);
+    if (!creds) throw new Error('LOGIN_KEY 格式: user:pass');
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  });
-  const page = await context.newPage();
-
-  // —————— Cookie 验证 ——————
-  const cached = loadCachedCookies();
-  if (cached) {
-    await context.addCookies(cached);
-    console.log('发现缓存 Cookie，验证中...');
-    const valid = await isCookieValid(page);
-    if (valid) {
-      console.log('Cookie 有效');
-      await browser.close();
-      return;
-    }
-    console.log('Cookie 已过期，删除旧文件');
-    try { fs.unlinkSync(CACHE_FILE); } catch {}
-  }
-
-  // —————— 登录 ——————
-  console.log('前往 passport.baidu.com...');
-  await page.goto('https://passport.baidu.com/v2/?login', { waitUntil: 'load', timeout: 60000 }).catch(() => {});
-
-  // 等待 TANGRAM 表单出现
-  console.log('等待页面加载...');
-  let ready = false;
-  for (let i = 0; i < 30; i++) {
-    const hasForm = await page.evaluate(() =>
-      !!document.getElementById('TANGRAM__PSP_3__userName')
-    ).catch(() => false);
-    if (hasForm) { ready = true; break; }
-    if (i % 5 === 0) console.log(`等待表单... i=${i + 1}/30`);
-    await page.waitForTimeout(2000);
-  }
-  if (!ready) {
-    console.error('表单未加载');
-    process.exit(1);
-  }
-  console.log('表单已就绪');
-
-  // 提取表单需要的全部字段 + 调用登录 API
-  console.log('调用登录 API...');
-  const result = await page.evaluate(async (creds) => {
-    const id = (name) => `TANGRAM__PSP_3__${name}`;
-
-    const getVal = (name) => {
-      const el = document.getElementById(id(name));
-      return el ? el.value : '';
-    };
-
-    // 收集所有表单字段
-    const staticPage = getVal('staticPage') || 'https://passport.baidu.com/static/passpc-account/html/v3Jump.html';
-    const charset = getVal('charset') || 'utf-8';
-    const token = getVal('token') || '';
-    const tpl = getVal('tpl') || 'pp';
-    const subpro = getVal('subpro') || '';
-    const apiver = getVal('apiver') || 'v3';
-    const tt = getVal('tt') || String(Date.now());
-    const codestring = getVal('codestring') || '';
-    const safeflag = getVal('safeFlag') || '0';
-    const isPhone = getVal('isPhone') || 'false';
-    const quickUser = getVal('quick_user') || '';
-    const logLoginType = getVal('logLoginType') || 'loginLog';
-    const idc = getVal('idc') || '';
-    const loginMerge = getVal('loginMerge') || '';
-    const gid = getVal('gid') || '';
-    const u = getVal('u') || '';
-    const memPass = 'on';
-    const username = creds.username;
-    const password = creds.password;
-    const loginType = '1';
-    const detect = '1';
-
-    const body = new URLSearchParams({
-      staticPage, charset, token, tpl, subpro, apiver, tt,
-      codestring, safeflag, isPhone, quickUser, logLoginType,
-      idc, loginMerge, gid, u, memPass,
-      username, password, loginType, detect,
-      ppui_logintime: String(Date.now()),
-      callback: 'parent.bd__pcbs__' + Date.now(),
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    });
+    const page = await context.newPage();
 
-    try {
-      const res = await fetch('https://passport.baidu.com/v2/api/?login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        body: body.toString(),
-        credentials: 'include',
-      });
-      const text = await res.text();
-      return { ok: res.ok, status: res.status, body: text.slice(0, 2000) };
-    } catch (err) {
-      return { ok: false, error: err.message };
+    // —————— Cookie 验证 ——————
+    const cached = loadCachedCookies();
+    if (cached) {
+      await context.addCookies(cached);
+      console.log('发现缓存 Cookie，验证中...');
+      const valid = await isCookieValid(page);
+      if (valid) {
+        console.log('Cookie 有效');
+        return;
+      }
+      console.log('Cookie 已过期，删除旧文件');
+      try { fs.unlinkSync(CACHE_FILE); } catch {}
     }
-  }, creds);
-  console.log('API 响应:', JSON.stringify(result));
 
-  if (result.ok) {
+    // —————— 登录 ——————
+    console.log('前往 passport.baidu.com...');
+    await page.goto('https://passport.baidu.com/v2/?login', { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+
+    // 等待 TANGRAM 表单出现
+    console.log('等待页面加载...');
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      const hasForm = await page.evaluate(() =>
+        !!document.getElementById('TANGRAM__PSP_3__userName')
+      ).catch(() => false);
+      if (hasForm) { ready = true; break; }
+      if (i % 5 === 0) console.log(`等待表单... i=${i + 1}/30`);
+      await page.waitForTimeout(2000);
+    }
+    if (!ready) throw new Error('表单未加载');
+    console.log('表单已就绪');
+
+    // 提取表单需要的全部字段 + 调用登录 API
+    console.log('调用登录 API...');
+    const result = await page.evaluate(async (creds) => {
+      const id = (name) => `TANGRAM__PSP_3__${name}`;
+
+      const getVal = (name) => {
+        const el = document.getElementById(id(name));
+        return el ? el.value : '';
+      };
+
+      const staticPage = getVal('staticPage') || 'https://passport.baidu.com/static/passpc-account/html/v3Jump.html';
+      const charset = getVal('charset') || 'utf-8';
+      const token = getVal('token') || '';
+      const tpl = getVal('tpl') || 'pp';
+      const subpro = getVal('subpro') || '';
+      const apiver = getVal('apiver') || 'v3';
+      const tt = getVal('tt') || String(Date.now());
+      const codestring = getVal('codestring') || '';
+      const safeflag = getVal('safeFlag') || '0';
+      const isPhone = getVal('isPhone') || 'false';
+      const quickUser = getVal('quick_user') || '';
+      const logLoginType = getVal('logLoginType') || 'loginLog';
+      const idc = getVal('idc') || '';
+      const loginMerge = getVal('loginMerge') || '';
+      const gid = getVal('gid') || '';
+      const u = getVal('u') || '';
+      const memPass = 'on';
+      const username = creds.username;
+      const password = creds.password;
+      const loginType = '1';
+      const detect = '1';
+
+      const body = new URLSearchParams({
+        staticPage, charset, token, tpl, subpro, apiver, tt,
+        codestring, safeflag, isPhone, quickUser, logLoginType,
+        idc, loginMerge, gid, u, memPass,
+        username, password, loginType, detect,
+        ppui_logintime: String(Date.now()),
+        callback: 'parent.bd__pcbs__' + Date.now(),
+      });
+
+      try {
+        const res = await fetch('https://passport.baidu.com/v2/api/?login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+          body: body.toString(),
+          credentials: 'include',
+        });
+        const text = await res.text();
+        return { ok: res.ok, status: res.status, body: text.slice(0, 2000) };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    }, creds);
+    console.log('API 响应:', JSON.stringify(result));
+
+    if (!result.ok) throw new Error('登录失败');
+
     const cookies = await context.cookies();
     saveCookies(cookies);
-    // 通知 GHA 缓存：cookie 有变化
     if (process.env.GITHUB_OUTPUT) {
       require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'cookies_changed=true\n');
     }
-  } else {
-    console.error('登录失败');
-    process.exit(1);
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+  } finally {
+    await cleanup();
   }
-
-  await browser.close();
 })();
