@@ -28,15 +28,13 @@ function saveCookies(cookies) {
 
 async function isCookieValid(page) {
   try {
-    await page.goto('https://www.miaoda.cn/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(5000);
     const result = await page.evaluate(async () => {
       try {
         const res = await fetch('https://www.miaoda.cn/api/v1/app/list', { credentials: 'include' });
-        if (res.status === 200) {
-          const data = await res.json();
-          return Array.isArray(data);
-        }
+        if (res.status === 200) return true;
+        if (res.status === 401 || res.status === 403) return false;
         return false;
       } catch { return false; }
     });
