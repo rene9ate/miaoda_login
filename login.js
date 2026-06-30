@@ -83,8 +83,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         console.log('Cookie 有效');
         return;
       }
-      console.log('Cookie 已过期，删除旧文件');
-      try { fs.unlinkSync(CACHE_FILE); } catch {}
+    console.log('Cookie 已过期，重新登录');
     }
 
     // —————— 登录 ——————
