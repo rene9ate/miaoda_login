@@ -31,12 +31,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package.json') }}
 
-      - name: 恢复缓存 Cookie
-        uses: actions/cache/restore@v4
+      - name: 缓存 Cookie
+        uses: actions/cache@v4
         with:
           path: cache
-          key: cookies-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: cookies-${{ runner.os }}-
+          key: cookies-${{ runner.os }}
 
       - name: 安装依赖
         run: |
@@ -44,34 +43,12 @@ jobs:
           npx playwright install chromium
 
       - name: 执行登录
-        id: login
-        continue-on-error: true
         run: node login.js
         env:
           LOGIN_KEY: ${{ inputs.login_key || secrets.LOGIN_KEY }}
 
-      - name: 保存 Cookie 到缓存（仅重新登录后）
-        if: steps.login.outputs.cookies_changed == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: cache
-          key: cookies-${{ runner.os }}-${{ github.run_id }}
-
-      - name: 清理旧 cookie 缓存
-        if: steps.login.outputs.cookies_changed == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          KEEP_KEY: cookies-Linux-${{ github.run_id }}
-        run: |
-          gh cache list --key "cookies-Linux-" --json key,id --jq '
-            .[] | select(.key != env.KEEP_KEY) | .id
-          ' | while read id; do
-            echo "y" | gh cache delete "$id" 2>/dev/null || true
-          done
-
       - name: 登录失败上报 Issue
-        if: steps.login.outcome != 'success'
+        if: failure()
         shell: bash
         run: |
           cat <<'ISSUE' > /tmp/issue-body.md
