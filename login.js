@@ -78,16 +78,11 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
     // 等待 TANGRAM 表单出现
     console.log('等待页面加载...');
-    let ready = false;
-    for (let i = 0; i < 30; i++) {
-      const hasForm = await page.evaluate(() =>
-        !!document.getElementById('TANGRAM__PSP_3__userName')
-      ).catch(() => false);
-      if (hasForm) { ready = true; break; }
-      if (i % 5 === 0) console.log(`等待表单... i=${i + 1}/30`);
-      await page.waitForTimeout(2000);
+    try {
+      await page.waitForSelector('#TANGRAM__PSP_3__userName', { timeout: 60000 });
+    } catch {
+      throw new Error('表单未加载');
     }
-    if (!ready) throw new Error('表单未加载');
     console.log('表单已就绪');
 
     // 提取表单需要的全部字段 + 调用登录 API
