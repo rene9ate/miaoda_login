@@ -79,7 +79,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     // 等待 TANGRAM 表单出现
     console.log('等待页面加载...');
     try {
-      await page.waitForSelector('#TANGRAM__PSP_3__userName', { timeout: 60000 });
+      await page.waitForSelector('#TANGRAM__PSP_3__userName', { state: 'attached', timeout: 60000 });
     } catch {
       throw new Error('表单未加载');
     }
