@@ -102,9 +102,9 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单已就绪');
 
-    // 填写凭据
-    await page.fill('#TANGRAM__PSP_3__userName', creds.username);
-    await page.fill('#TANGRAM__PSP_3__password', creds.password);
+    // 填写凭据（force 跳过可见性检查，TANGRAM 隐藏了原生 input）
+    await page.locator('#TANGRAM__PSP_3__userName').fill(creds.username, { force: true });
+    await page.locator('#TANGRAM__PSP_3__password').fill(creds.password, { force: true });
 
     const memCheck = await page.$('#TANGRAM__PSP_3__memberPass');
     if (memCheck) {
