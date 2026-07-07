@@ -146,7 +146,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
       const text = await res.text();
 
-      // 从 JSONP 响应中提取 OAuth 跳转 URL
+      // 从 JSONP 或 HTML 响应中提取 OAuth 跳转 URL
       let redirectUrl = '';
       try {
         const m = text.match(/bd__pcbs__\d+\((.+)\)/);
@@ -156,11 +156,15 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         }
       } catch {}
       if (!redirectUrl) {
+        const m = text.match(/var href\s*=\s*(?:decodeURIComponent\(['"]?)?([^'")\s;]+)/);
+        if (m) redirectUrl = decodeURIComponent(m[1]);
+      }
+      if (!redirectUrl) {
         const m = text.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
         if (m) redirectUrl = m[1];
       }
 
-      return { ok: res.ok, body: text.slice(0, 200), redirectUrl };
+      return { ok: res.ok, body: text.slice(0, 500), redirectUrl };
     }, creds);
 
     console.log('API 响应:', loginResult.body);
