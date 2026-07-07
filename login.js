@@ -123,19 +123,29 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
     // 用 JS 提交表单（TANGRAM 隐藏了原生按钮）
     console.log('提交登录...');
-    const redirectPromise = page.waitForURL(
-      url => url.includes('miaoda.cn'),
-      { timeout: 30000 }
-    ).catch(() => {});
     await page.evaluate(() => {
       const btn = document.getElementById('TANGRAM__PSP_3__submit');
       if (btn) btn.click();
     });
-    await redirectPromise;
 
-    // 等待 SPA 加载
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    // 等待 AJAX 登录完成
+    await page.waitForTimeout(5000);
+
+    // 导航到 miaoda.cn 验证登录
+    console.log('验证登录，前往 miaoda.cn...');
+    await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
     console.log('当前页面:', page.url().slice(0, 80));
+
+    const loggedIn = await page.evaluate(() => {
+      const text = document.body?.innerText?.slice(0, 500) || '';
+      const hasUserInfo = /退出|注销|我的|个人中心|账户|额度|余额/i.test(text);
+      return hasUserInfo;
+    }).catch(() => false);
+
+    if (!loggedIn) {
+      throw new Error('登录验证失败：未检测到已登录状态');
+    }
+    console.log('登录成功');
 
     const cookies = await context.cookies();
     saveCookies(cookies);
