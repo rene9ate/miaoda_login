@@ -69,15 +69,32 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       console.log('使用缓存 Cookie，访问 miaoda.cn...');
       await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
       console.log('当前页面:', page.url().slice(0, 80));
-      return;
+
+      // 验证 Cookie 是否真的有效：尝试导航到需要认证的页面
+      const loggedIn = await page.evaluate(() => {
+        const text = document.body?.innerText?.slice(0, 500) || '';
+        // 如果有登录/注册按钮但无用户相关文字，则未登录
+        const hasLoginBtn = /登录|注册|sign.?in/i.test(text);
+        const hasUserInfo = /退出|注销|我的|个人中心|账户|额度|余额/i.test(text);
+        return hasUserInfo || !hasLoginBtn;
+      }).catch(() => false);
+
+      if (loggedIn) {
+        console.log('Cookie 有效，已登录');
+        return;
+      }
+      console.log('Cookie 已过期，重新登录');
     }
 
     // —————— 登录 ——————
-    console.log('前往 passport.baidu.com...');
-    await page.goto('https://passport.baidu.com/v2/?login', { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+    console.log('前往 passport.baidu.com（携带跳转参数）...');
+    await page.goto(
+      'https://passport.baidu.com/v2/?login&u=https://www.miaoda.cn/',
+      { waitUntil: 'load', timeout: 60000 }
+    ).catch(() => {});
 
-    // 等待 TANGRAM 表单出现
-    console.log('等待页面加载...');
+    // 等待表单
+    console.log('等待表单...');
     try {
       await page.waitForSelector('#TANGRAM__PSP_3__userName', { state: 'attached', timeout: 60000 });
     } catch {
@@ -85,69 +102,27 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单已就绪');
 
-    // 提取表单需要的全部字段 + 调用登录 API
-    console.log('调用登录 API...');
-    const result = await page.evaluate(async (creds) => {
-      const id = (name) => `TANGRAM__PSP_3__${name}`;
+    // 填写凭据
+    await page.fill('#TANGRAM__PSP_3__userName', creds.username);
+    await page.fill('#TANGRAM__PSP_3__password', creds.password);
 
-      const getVal = (name) => {
-        const el = document.getElementById(id(name));
-        return el ? el.value : '';
-      };
+    const memCheck = await page.$('#TANGRAM__PSP_3__memberPass');
+    if (memCheck) {
+      const checked = await memCheck.isChecked();
+      if (!checked) await memCheck.check();
+    }
 
-      const staticPage = getVal('staticPage') || 'https://passport.baidu.com/static/passpc-account/html/v3Jump.html';
-      const charset = getVal('charset') || 'utf-8';
-      const token = getVal('token') || '';
-      const tpl = getVal('tpl') || 'pp';
-      const subpro = getVal('subpro') || '';
-      const apiver = getVal('apiver') || 'v3';
-      const tt = getVal('tt') || String(Date.now());
-      const codestring = getVal('codestring') || '';
-      const safeflag = getVal('safeFlag') || '0';
-      const isPhone = getVal('isPhone') || 'false';
-      const quickUser = getVal('quick_user') || '';
-      const logLoginType = getVal('logLoginType') || 'loginLog';
-      const idc = getVal('idc') || '';
-      const loginMerge = getVal('loginMerge') || '';
-      const gid = getVal('gid') || '';
-      const u = getVal('u') || '';
-      const memPass = 'on';
-      const username = creds.username;
-      const password = creds.password;
-      const loginType = '1';
-      const detect = '1';
+    // 提交表单并等待 OAuth 重定向到 miaoda.cn
+    console.log('提交登录...');
+    const redirectPromise = page.waitForURL(
+      url => url.includes('miaoda.cn'),
+      { timeout: 30000 }
+    ).catch(() => {});
+    await page.click('#TANGRAM__PSP_3__submit');
+    await redirectPromise;
 
-      const body = new URLSearchParams({
-        staticPage, charset, token, tpl, subpro, apiver, tt,
-        codestring, safeflag, isPhone, quickUser, logLoginType,
-        idc, loginMerge, gid, u, memPass,
-        username, password, loginType, detect,
-        ppui_logintime: String(Date.now()),
-        callback: 'parent.bd__pcbs__' + Date.now(),
-      });
-
-      try {
-        const res = await fetch('https://passport.baidu.com/v2/api/?login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          },
-          body: body.toString(),
-          credentials: 'include',
-        });
-        const text = await res.text();
-        return { ok: res.ok, status: res.status, body: text.slice(0, 2000) };
-      } catch (err) {
-        return { ok: false, error: err.message };
-      }
-    }, creds);
-    console.log('API 响应:', JSON.stringify(result));
-
-    if (!result.ok) throw new Error('登录失败');
-
-    console.log('登录成功，访问 miaoda.cn...');
-    await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+    // 等待 SPA 加载
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     console.log('当前页面:', page.url().slice(0, 80));
 
     const cookies = await context.cookies();
