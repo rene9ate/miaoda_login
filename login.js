@@ -118,7 +118,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       url => url.includes('miaoda.cn'),
       { timeout: 30000 }
     ).catch(() => {});
-    await page.click('#TANGRAM__PSP_3__submit');
+    await page.locator('#TANGRAM__PSP_3__submit').click({ force: true });
     await redirectPromise;
 
     // 等待 SPA 加载
