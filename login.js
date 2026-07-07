@@ -102,23 +102,35 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单已就绪');
 
-    // 填写凭据（force 跳过可见性检查，TANGRAM 隐藏了原生 input）
-    await page.locator('#TANGRAM__PSP_3__userName').fill(creds.username, { force: true });
-    await page.locator('#TANGRAM__PSP_3__password').fill(creds.password, { force: true });
+    // 填写凭据（TANGRAM 隐藏了原生 input，用 JS 直接设值）
+    await page.evaluate(({ username, password }) => {
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(el, val);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      setVal('TANGRAM__PSP_3__userName', username);
+      setVal('TANGRAM__PSP_3__password', password);
+    }, { username: creds.username, password: creds.password });
 
-    const memCheck = await page.$('#TANGRAM__PSP_3__memberPass');
-    if (memCheck) {
-      const checked = await memCheck.isChecked();
-      if (!checked) await memCheck.check();
-    }
+    await page.evaluate(() => {
+      const mem = document.getElementById('TANGRAM__PSP_3__memberPass');
+      if (mem && !mem.checked) mem.checked = true;
+    });
 
-    // 提交表单并等待 OAuth 重定向到 miaoda.cn
+    // 用 JS 提交表单（TANGRAM 隐藏了原生按钮）
     console.log('提交登录...');
     const redirectPromise = page.waitForURL(
       url => url.includes('miaoda.cn'),
       { timeout: 30000 }
     ).catch(() => {});
-    await page.locator('#TANGRAM__PSP_3__submit').click({ force: true });
+    await page.evaluate(() => {
+      const btn = document.getElementById('TANGRAM__PSP_3__submit');
+      if (btn) btn.click();
+    });
     await redirectPromise;
 
     // 等待 SPA 加载
