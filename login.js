@@ -58,10 +58,14 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+      ],
     });
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
     });
     const page = await context.newPage();
 
@@ -89,16 +93,22 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
     console.log('当前页面:', page.url().slice(0, 80));
 
-    // 等待表单（BCE 页面 TANGRAM 可能加载慢）
+    // 等待表单（BCE 页面 TANGRAM 可能加载慢，重试 3 次）
     console.log('等待登录表单...');
-    await page.waitForLoadState('networkidle', { timeout: 45000 }).catch(() => {});
-    console.log('networkidle 完成');
-    const userNameEl = await page.waitForSelector('#TANGRAM__PSP_4__userName', { state: 'attached', timeout: 15000 }).catch(() => null);
-    if (!userNameEl) {
-      // 打印页面状态帮助调试
-      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '').catch(() => '');
+    let formReady = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+      const hasForm = await page.$('#TANGRAM__PSP_4__userName');
+      if (hasForm) { formReady = true; break; }
+      if (attempt < 3) {
+        console.log(`表单未就绪 (尝试 ${attempt}/3)，重新加载...`);
+        await page.goto(BCE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      }
+    }
+    if (!formReady) {
+      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
       console.log('页面内容:', bodyText.replace(/\n/g, ' '));
-      throw new Error('登录表单未加载');
+      throw new Error('登录表单未加载（BCE CDN 可能不可达）');
     }
     console.log('表单就绪');
 
