@@ -113,6 +113,15 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       if (cb) cb.checked = true;
     }, { username: creds.username, password: creds.password });
 
+    // 打印表单信息
+    const formInfo = await page.evaluate(() => {
+      const f = document.querySelector('form');
+      if (!f) return { found: false };
+      const inputs = Array.from(f.querySelectorAll('input')).map(i => ({ id: i.id, name: i.name, value: i.value.slice(0, 30) }));
+      return { found: true, action: f.action, method: f.method, id: f.id, inputs };
+    });
+    console.log('表单信息:', JSON.stringify(formInfo));
+
     // 直接提交表单（绕过 TANGRAM JS，走原生 HTTP POST）
     console.log('提交登录...');
     await page.evaluate(() => {
