@@ -84,37 +84,22 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       console.log('Cookie 已过期，重新登录');
     }
 
-    // —————— BCE OAuth 登录 ——————
+    // —————— BCE 登录 ——————
     console.log('前往 BCE 登录页...');
     await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
     console.log('当前页面:', page.url().slice(0, 80));
 
-    // 等待表单出现
+    // 等待表单
     console.log('等待登录表单...');
-    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
-    // 打印页面 DOM 结构
-    const pageHtml = await page.evaluate(() => {
-      const inputs = Array.from(document.querySelectorAll('input')).map(el => ({
-        id: el.id,
-        type: el.type,
-        name: el.name,
-        placeholder: el.placeholder,
-        className: el.className,
-      }));
-      const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]')).map(el => ({
-        id: el.id,
-        type: el.type || el.tagName,
-        text: el.innerText || el.value,
-      }));
-      return { inputs, buttons };
-    }).catch(() => ({}));
-    console.log('页面 inputs:', JSON.stringify(pageHtml.inputs));
-    console.log('页面 buttons:', JSON.stringify(pageHtml.buttons));
+    await page.waitForSelector('#TANGRAM__PSP_4__userName', { state: 'attached', timeout: 20000 }).catch(async () => {
+      await page.waitForSelector('input[type="password"]', { state: 'attached', timeout: 20000 });
+    });
     console.log('表单就绪');
 
     // 填入用户名密码
     await page.evaluate(({ username, password }) => {
-      const setVal = (el, val) => {
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
         if (!el) return;
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(el, val);
@@ -122,40 +107,25 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         el.dispatchEvent(new Event('change', { bubbles: true }));
       };
 
-      const allInputs = document.querySelectorAll('input');
-      const textInputs = [];
-      const passInputs = [];
-      allInputs.forEach(el => {
-        const t = (el.type || '').toLowerCase();
-        if (t === 'text' || t === 'email' || t === '' || !t) textInputs.push(el);
-        if (t === 'password') passInputs.push(el);
-      });
+      setVal('TANGRAM__PSP_4__userName', username);
+      setVal('TANGRAM__PSP_4__password', password);
 
-      // 用户名：第一个文本输入框
-      if (textInputs.length) setVal(textInputs[0], username);
-      // 密码：第一个密码框
-      if (passInputs.length) setVal(passInputs[0], password);
-
-      // 勾选协议 checkbox
-      document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        const label = (cb.closest('label') || {}).innerText || '';
-        const parent = (cb.closest('div,span,p') || {}).innerText || '';
-        if (/秒哒|百度|协议|隐私|同意/i.test(label + parent)) {
-          cb.checked = true;
-          cb.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      });
+      // 勾选协议
+      const agree = document.getElementById('TANGRAM__PSP_4__isAgree');
+      if (agree && !agree.checked) {
+        agree.checked = true;
+        agree.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }, { username: creds.username, password: creds.password });
 
     // 提交登录
     console.log('提交登录...');
     await page.evaluate(() => {
-      const btn = document.getElementById('TANGRAM__PSP_3__submit');
-      if (btn) { btn.click(); return; }
-      const submitBtns = document.querySelectorAll(
-        'input[type="submit"], button[type="submit"], button:has(span), .pass-button-submit'
-      );
-      if (submitBtns.length) submitBtns[0].click();
+      const btn = document.getElementById('TANGRAM__PSP_4__submit');
+      if (btn) {
+        btn.disabled = false;
+        btn.click();
+      }
     });
 
     // 等待 OAuth 重定向到 miaoda.cn
