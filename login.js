@@ -112,7 +112,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单就绪');
 
-    // 填入用户名密码
+    // 填入用户名密码（直接设值，不依赖 TANGRAM 事件）
     await page.evaluate(({ username, password }) => {
       const setVal = (id, val) => {
         const el = document.getElementById(id);
@@ -125,16 +125,77 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       setVal('TANGRAM__PSP_4__password', password);
     }, { username: creds.username, password: creds.password });
 
-    // 用 MouseEvent click 点击勾选框（TANGRAM 监听 click 来控制 submit）
-    await page.evaluate(() => {
-      const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
-      if (cb) cb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await page.waitForTimeout(500);
-
-    // 用 Playwright 原生 click（isTrusted=true）点击提交按钮
+    // 收集全部表单字段，直接用 fetch 调 passport 登录 API
     console.log('提交登录...');
-    await page.locator('#TANGRAM__PSP_4__submit').click({ force: true });
+    const loginResult = await page.evaluate(async (creds) => {
+      const id = (name) => `TANGRAM__PSP_4__${name}`;
+      const getVal = (name) => {
+        const el = document.getElementById(id(name));
+        return el ? el.value : '';
+      };
+
+      const body = new URLSearchParams({
+        staticPage: getVal('staticPage') || 'https://login.bce.baidu.com/static/passpc-account/html/v3Jump.html',
+        charset: getVal('charset') || 'utf-8',
+        token: getVal('token') || '',
+        tpl: getVal('tpl') || 'pp',
+        subpro: getVal('subpro') || '',
+        apiver: getVal('apiver') || 'v3',
+        tt: getVal('tt') || String(Date.now()),
+        codestring: getVal('codeString') || getVal('codestring') || '',
+        safeflag: getVal('safeFlag') || '0',
+        isPhone: getVal('isPhone') || 'false',
+        quickUser: getVal('quick_user') || '',
+        logLoginType: getVal('logLoginType') || 'pc_loginBasic',
+        idc: getVal('idc') || '',
+        loginMerge: getVal('loginMerge') || 'true',
+        gid: getVal('gid') || '',
+        u: getVal('u') || '',
+        memPass: getVal('memberPass') || 'on',
+        username: creds.username,
+        password: creds.password,
+        loginType: '1',
+        detect: getVal('detect') || '1',
+        ppui_logintime: String(Date.now()),
+        callback: 'parent.bd__pcbs__' + Date.now(),
+      });
+
+      const res = await fetch('https://passport.baidu.com/v2/api/?login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        credentials: 'include',
+      });
+
+      const text = await res.text();
+
+      let redirectUrl = '';
+      try {
+        const m = text.match(/bd__pcbs__\d+\((.+)\)/);
+        if (m) {
+          const data = JSON.parse(m[1]);
+          redirectUrl = data?.data?.redirectUrl || data?.data?.u || '';
+        }
+      } catch {}
+      if (!redirectUrl) {
+        const m = text.match(/decodeURIComponent\(["']([^"']+)["']\)/);
+        if (m) redirectUrl = decodeURIComponent(m[1]).replace(/\\(.)/g, '$1');
+      }
+
+      const errMatch = text.match(/err_no=(\d+)/);
+      return { ok: res.ok, body: text.slice(0, 500), redirectUrl, errNo: errMatch ? errMatch[1] : '' };
+    }, { username: creds.username, password: creds.password });
+
+    if (loginResult.errNo === '50052') throw new Error('账号需绑定手机号');
+    if (!loginResult.redirectUrl) {
+      console.log('API 响应:', loginResult.body);
+      throw new Error('未获取到跳转 URL');
+    }
+
+    const target = loginResult.redirectUrl;
+    console.log('跳转到:', target.slice(0, 100));
+    await page.goto(target, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+    console.log('跳转后 URL:', page.url().slice(0, 80));
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
