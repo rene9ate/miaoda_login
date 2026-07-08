@@ -112,7 +112,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单就绪');
 
-    // 填入用户名密码 + 勾选协议
+    // 填入用户名密码
     await page.evaluate(({ username, password }) => {
       const setVal = (id, val) => {
         const el = document.getElementById(id);
@@ -123,36 +123,29 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       };
       setVal('TANGRAM__PSP_4__userName', username);
       setVal('TANGRAM__PSP_4__password', password);
-      const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
-      if (cb) {
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
-      }
     }, { username: creds.username, password: creds.password });
 
-    // 找到 TANGRAM 的可见提交按钮并点击
+    // 用 MouseEvent click 点击勾选框（TANGRAM 监听 click 来控制 submit 按钮状态）
+    await page.evaluate(() => {
+      const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
+      if (cb) cb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(500);
+
+    // 点击提交按钮
     console.log('提交登录...');
-    const submitOk = await page.evaluate(() => {
-      const candidates = document.querySelectorAll(
-        '.pass-button-submit, ' +
-        '.pass-button[class*="submit"], ' +
-        'a[class*="submit"], span[class*="submit"], div[class*="submit"]'
-      );
-      for (const el of candidates) {
-        if (el.offsetParent !== null) { el.click(); return true; }
-      }
-      // 兜底：找任何可见的「登录」文字元素
-      const all = document.querySelectorAll('a, span, div, button, p');
-      for (const el of all) {
-        if (el.offsetParent !== null && el.innerText?.trim() === '登录') {
-          el.click(); return true;
-        }
+    const clicked = await page.evaluate(() => {
+      const btn = document.getElementById('TANGRAM__PSP_4__submit');
+      if (btn && !btn.disabled) {
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return true;
       }
       return false;
     });
 
-    if (!submitOk) {
-      console.log('未找到可见按钮，使用 form.submit()...');
+    if (!clicked) {
+      // submit 仍被禁用，用 form.submit() 兜底
+      console.log('submit 仍被禁用，使用 form.submit()...');
       await page.evaluate(() => {
         const form = document.querySelector('#TANGRAM__PSP_4__form') || document.querySelector('form');
         if (form) form.submit();
