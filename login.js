@@ -133,25 +133,25 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     // 找到 TANGRAM 的可见提交按钮并点击
     console.log('提交登录...');
     const submitOk = await page.evaluate(() => {
-      // TANGRAM 的可见样式按钮通常是一个 <a> 或 <span>
       const candidates = document.querySelectorAll(
         '.pass-button-submit, ' +
         '.pass-button[class*="submit"], ' +
-        'a[class*="submit"], ' +
-        'span[class*="submit"], ' +
-        'div[class*="submit"]'
+        'a[class*="submit"], span[class*="submit"], div[class*="submit"]'
       );
       for (const el of candidates) {
-        if (el.offsetParent !== null && (el.innerText === '登录' || el.textContent.trim() === '登录')) {
-          el.click();
-          return true;
+        if (el.offsetParent !== null) { el.click(); return true; }
+      }
+      // 兜底：找任何可见的「登录」文字元素
+      const all = document.querySelectorAll('a, span, div, button, p');
+      for (const el of all) {
+        if (el.offsetParent !== null && el.innerText?.trim() === '登录') {
+          el.click(); return true;
         }
       }
       return false;
     });
 
     if (!submitOk) {
-      // 没找到可见按钮，改用原生 submit（可能不触发 TANGRAM，但值得一试）
       console.log('未找到可见按钮，使用 form.submit()...');
       await page.evaluate(() => {
         const form = document.querySelector('#TANGRAM__PSP_4__form') || document.querySelector('form');
