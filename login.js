@@ -91,9 +91,11 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
     // 等待表单
     console.log('等待登录表单...');
-    await page.waitForSelector('#TANGRAM__PSP_4__userName', { state: 'attached', timeout: 20000 }).catch(async () => {
-      await page.waitForSelector('input[type="password"]', { state: 'attached', timeout: 20000 });
-    });
+    try {
+      await page.waitForSelector('#TANGRAM__PSP_4__userName', { state: 'attached', timeout: 30000 });
+    } catch {
+      await page.waitForSelector('input[type="password"]', { state: 'attached', timeout: 30000 });
+    }
     console.log('表单就绪');
 
     // 填入用户名密码
