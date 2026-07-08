@@ -113,7 +113,6 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       };
       setVal('TANGRAM__PSP_4__userName', username);
       setVal('TANGRAM__PSP_4__password', password);
-      // 勾选协议（Event:change 触发 TANGRAM 状态更新）
       const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
       if (cb) {
         cb.checked = true;
@@ -121,25 +120,34 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       }
     }, { username: creds.username, password: creds.password });
 
-    // 拦截 TANGRAM 的 AJAX 请求，获取真实 API 地址
-    const apiRequest = new Promise(resolve => {
-      page.on('request', req => {
-        if (req.url().includes('/api/?login') || req.method() === 'POST' && req.url().includes('login')) {
-          resolve(req.url());
-        }
-      });
-    });
-
-    // 提交登录
+    // 找到 TANGRAM 的可见提交按钮并点击
     console.log('提交登录...');
-    await page.evaluate(() => {
-      const btn = document.getElementById('TANGRAM__PSP_4__submit');
-      if (btn) btn.click();
+    const submitOk = await page.evaluate(() => {
+      // TANGRAM 的可见样式按钮通常是一个 <a> 或 <span>
+      const candidates = document.querySelectorAll(
+        '.pass-button-submit, ' +
+        '.pass-button[class*="submit"], ' +
+        'a[class*="submit"], ' +
+        'span[class*="submit"], ' +
+        'div[class*="submit"]'
+      );
+      for (const el of candidates) {
+        if (el.offsetParent !== null && (el.innerText === '登录' || el.textContent.trim() === '登录')) {
+          el.click();
+          return true;
+        }
+      }
+      return false;
     });
 
-    // 等待 TANGRAM 的 API 请求
-    const apiUrl = await apiRequest;
-    console.log('TANGRAM 请求地址:', apiUrl);
+    if (!submitOk) {
+      // 没找到可见按钮，改用原生 submit（可能不触发 TANGRAM，但值得一试）
+      console.log('未找到可见按钮，使用 form.submit()...');
+      await page.evaluate(() => {
+        const form = document.querySelector('#TANGRAM__PSP_4__form') || document.querySelector('form');
+        if (form) form.submit();
+      });
+    }
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
