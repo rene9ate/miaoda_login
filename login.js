@@ -91,18 +91,30 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
     // 等待表单出现
     console.log('等待登录表单...');
-    try {
-      await page.waitForSelector('#TANGRAM__PSP_3__userName', { state: 'attached', timeout: 15000 });
-    } catch {
-      // 可能用了不同的 TANGRAM 实例 ID，尝试搜索任何可见输入框
-      await page.waitForSelector('input[type="text"]', { state: 'attached', timeout: 15000 });
-    }
+    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+    // 打印页面 DOM 结构
+    const pageHtml = await page.evaluate(() => {
+      const inputs = Array.from(document.querySelectorAll('input')).map(el => ({
+        id: el.id,
+        type: el.type,
+        name: el.name,
+        placeholder: el.placeholder,
+        className: el.className,
+      }));
+      const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]')).map(el => ({
+        id: el.id,
+        type: el.type || el.tagName,
+        text: el.innerText || el.value,
+      }));
+      return { inputs, buttons };
+    }).catch(() => ({}));
+    console.log('页面 inputs:', JSON.stringify(pageHtml.inputs));
+    console.log('页面 buttons:', JSON.stringify(pageHtml.buttons));
     console.log('表单就绪');
 
     // 填入用户名密码
     await page.evaluate(({ username, password }) => {
-      const setVal = (id, val) => {
-        const el = document.getElementById(id);
+      const setVal = (el, val) => {
         if (!el) return;
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(el, val);
@@ -110,38 +122,25 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         el.dispatchEvent(new Event('change', { bubbles: true }));
       };
 
-      // 尝试 TANGRAM 标准 ID
-      let userEl = document.getElementById('TANGRAM__PSP_3__userName');
-      if (!userEl) {
-        // 回退到第一个文本输入框
-        const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
-        userEl = inputs[0];
-      }
-      if (userEl) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-        setter.call(userEl, username);
-        userEl.dispatchEvent(new Event('input', { bubbles: true }));
-        userEl.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      const allInputs = document.querySelectorAll('input');
+      const textInputs = [];
+      const passInputs = [];
+      allInputs.forEach(el => {
+        const t = (el.type || '').toLowerCase();
+        if (t === 'text' || t === 'email' || t === '' || !t) textInputs.push(el);
+        if (t === 'password') passInputs.push(el);
+      });
 
-      let passEl = document.getElementById('TANGRAM__PSP_3__password');
-      if (!passEl) {
-        const inputs = document.querySelectorAll('input[type="password"]');
-        passEl = inputs[0];
-      }
-      if (passEl) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-        setter.call(passEl, password);
-        passEl.dispatchEvent(new Event('input', { bubbles: true }));
-        passEl.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      // 用户名：第一个文本输入框
+      if (textInputs.length) setVal(textInputs[0], username);
+      // 密码：第一个密码框
+      if (passInputs.length) setVal(passInputs[0], password);
 
-      // 勾选协议（勾选包含"秒哒"或"百度"的 checkbox）
+      // 勾选协议 checkbox
       document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
         const label = (cb.closest('label') || {}).innerText || '';
         const parent = (cb.closest('div,span,p') || {}).innerText || '';
-        const text = label + parent;
-        if (/秒哒|百度|协议|隐私|同意/i.test(text)) {
+        if (/秒哒|百度|协议|隐私|同意/i.test(label + parent)) {
           cb.checked = true;
           cb.dispatchEvent(new Event('change', { bubbles: true }));
         }
@@ -153,8 +152,10 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     await page.evaluate(() => {
       const btn = document.getElementById('TANGRAM__PSP_3__submit');
       if (btn) { btn.click(); return; }
-      const btns = document.querySelectorAll('input[type="submit"], button[type="submit"]');
-      if (btns.length) btns[0].click();
+      const submitBtns = document.querySelectorAll(
+        'input[type="submit"], button[type="submit"], button:has(span), .pass-button-submit'
+      );
+      if (submitBtns.length) submitBtns[0].click();
     });
 
     // 等待 OAuth 重定向到 miaoda.cn
