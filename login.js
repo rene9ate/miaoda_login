@@ -104,27 +104,28 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(el, val);
         el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
       };
-
       setVal('TANGRAM__PSP_4__userName', username);
       setVal('TANGRAM__PSP_4__password', password);
-
-      // 勾选协议
-      const agree = document.getElementById('TANGRAM__PSP_4__isAgree');
-      if (agree && !agree.checked) {
-        agree.checked = true;
-        agree.dispatchEvent(new Event('change', { bubbles: true }));
-      }
     }, { username: creds.username, password: creds.password });
+
+    // 点击勾选协议（MouseEvent 触发 TANGRAM 状态更新）
+    await page.evaluate(() => {
+      const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
+      if (cb) {
+        cb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }
+    });
+
+    // 等待 TANGRAM 启用提交按钮
+    await page.waitForTimeout(1000);
 
     // 提交登录
     console.log('提交登录...');
     await page.evaluate(() => {
       const btn = document.getElementById('TANGRAM__PSP_4__submit');
-      if (btn) {
-        btn.disabled = false;
-        btn.click();
+      if (btn && !btn.disabled) {
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       }
     });
 
