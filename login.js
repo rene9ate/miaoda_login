@@ -125,32 +125,16 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       setVal('TANGRAM__PSP_4__password', password);
     }, { username: creds.username, password: creds.password });
 
-    // 用 MouseEvent click 点击勾选框（TANGRAM 监听 click 来控制 submit 按钮状态）
+    // 用 MouseEvent click 点击勾选框（TANGRAM 监听 click 来控制 submit）
     await page.evaluate(() => {
       const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
       if (cb) cb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await page.waitForTimeout(500);
 
-    // 点击提交按钮
+    // 用 Playwright 原生 click（isTrusted=true）点击提交按钮
     console.log('提交登录...');
-    const clicked = await page.evaluate(() => {
-      const btn = document.getElementById('TANGRAM__PSP_4__submit');
-      if (btn && !btn.disabled) {
-        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        return true;
-      }
-      return false;
-    });
-
-    if (!clicked) {
-      // submit 仍被禁用，用 form.submit() 兜底
-      console.log('submit 仍被禁用，使用 form.submit()...');
-      await page.evaluate(() => {
-        const form = document.querySelector('#TANGRAM__PSP_4__form') || document.querySelector('form');
-        if (form) form.submit();
-      });
-    }
+    await page.locator('#TANGRAM__PSP_4__submit').click({ force: true });
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
