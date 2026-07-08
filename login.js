@@ -142,8 +142,12 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
       const text = await res.text();
 
-      // 从 JSONP 或 HTML 响应中提取 OAuth 跳转 URL
+      // 解析 err_no 和 OAuth 跳转 URL
+      let errNo = '';
       let redirectUrl = '';
+      const errMatch = text.match(/err_no=(\d+)/);
+      if (errMatch) errNo = errMatch[1];
+
       try {
         const m = text.match(/bd__pcbs__\d+\((.+)\)/);
         if (m) {
@@ -152,19 +156,27 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         }
       } catch {}
       if (!redirectUrl) {
-        const m = text.match(/var href\s*=\s*(?:decodeURIComponent\(['"]?)?([^'")\s;]+)/);
-        if (m) redirectUrl = decodeURIComponent(m[1]);
+        const m = text.match(/decodeURIComponent\(["']([^"']+)["']\)/);
+        if (m) redirectUrl = decodeURIComponent(m[1]).replace(/\\(.)/g, '$1');
       }
       if (!redirectUrl) {
         const m = text.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
         if (m) redirectUrl = m[1];
       }
 
-      return { ok: res.ok, body: text.slice(0, 2000), redirectUrl };
+      return { ok: res.ok, body: text.slice(0, 2000), redirectUrl, errNo };
     }, creds);
 
+    console.log('err_no:', loginResult.errNo);
     console.log('API 响应体:', loginResult.body);
     console.log('提取的重定向 URL:', loginResult.redirectUrl);
+
+    if (loginResult.errNo === '50052') {
+      throw new Error('账号需绑定手机号，请在浏览器手动登录一次绑定');
+    }
+    if (loginResult.errNo === '50053') {
+      throw new Error('账号需短信验证');
+    }
     if (!loginResult.ok && !loginResult.redirectUrl) {
       throw new Error('登录 API 失败');
     }
@@ -173,7 +185,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     const target = loginResult.redirectUrl || 'https://www.miaoda.cn/';
     console.log('完成 OAuth 跳转到:', target.slice(0, 80));
     await page.goto(target, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
-    console.log('当前页面:', page.url().slice(0, 80));
+    console.log('跳转后 URL:', page.url().slice(0, 80));
 
     // 验证登录状态
     const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
