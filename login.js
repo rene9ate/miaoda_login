@@ -95,7 +95,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       await page.waitForSelector('#TANGRAM__PSP_3__userName', { state: 'attached', timeout: 15000 });
     } catch {
       // 可能用了不同的 TANGRAM 实例 ID，尝试搜索任何可见输入框
-      await page.waitForSelector('input[type="text"]', { timeout: 15000 });
+      await page.waitForSelector('input[type="text"]', { state: 'attached', timeout: 15000 });
     }
     console.log('表单就绪');
 
