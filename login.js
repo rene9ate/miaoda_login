@@ -98,6 +98,17 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单就绪');
 
+    // 切换到账号密码登录（默认可能是短信登录）
+    await page.evaluate(() => {
+      const tab = document.querySelector('#TANGRAM__PSP_4__pwdSwitch, .pass-tab-pwd, [class*="pwdSwitch"]');
+      if (tab) { tab.click(); return; }
+      document.querySelectorAll('a, span, div, button').forEach(el => {
+        if (el.innerText?.trim() === '账号登录') { el.click(); }
+      });
+    });
+    await page.waitForTimeout(500);
+    console.log('表单就绪');
+
     // 填入用户名密码
     await page.evaluate(({ username, password }) => {
       const setVal = (id, val) => {
