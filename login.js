@@ -113,25 +113,33 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       };
       setVal('TANGRAM__PSP_4__userName', username);
       setVal('TANGRAM__PSP_4__password', password);
+      // 勾选协议（Event:change 触发 TANGRAM 状态更新）
       const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
-      if (cb) cb.checked = true;
+      if (cb) {
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }, { username: creds.username, password: creds.password });
 
-    // 打印表单信息
-    const formInfo = await page.evaluate(() => {
-      const f = document.querySelector('form');
-      if (!f) return { found: false };
-      const inputs = Array.from(f.querySelectorAll('input')).map(i => ({ id: i.id, name: i.name, value: i.value.slice(0, 30) }));
-      return { found: true, action: f.action, method: f.method, id: f.id, inputs };
+    // 拦截 TANGRAM 的 AJAX 请求，获取真实 API 地址
+    const apiRequest = new Promise(resolve => {
+      page.on('request', req => {
+        if (req.url().includes('/api/?login') || req.method() === 'POST' && req.url().includes('login')) {
+          resolve(req.url());
+        }
+      });
     });
-    console.log('表单信息:', JSON.stringify(formInfo));
 
-    // 直接提交表单（绕过 TANGRAM JS，走原生 HTTP POST）
+    // 提交登录
     console.log('提交登录...');
     await page.evaluate(() => {
-      const form = document.querySelector('#TANGRAM__PSP_4__form') || document.querySelector('form');
-      if (form) form.submit();
+      const btn = document.getElementById('TANGRAM__PSP_4__submit');
+      if (btn) btn.click();
     });
+
+    // 等待 TANGRAM 的 API 请求
+    const apiUrl = await apiRequest;
+    console.log('TANGRAM 请求地址:', apiUrl);
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
