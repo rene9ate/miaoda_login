@@ -89,12 +89,16 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
     console.log('当前页面:', page.url().slice(0, 80));
 
-    // 等待表单
+    // 等待表单（BCE 页面 TANGRAM 可能加载慢）
     console.log('等待登录表单...');
-    try {
-      await page.waitForSelector('#TANGRAM__PSP_4__userName', { state: 'attached', timeout: 30000 });
-    } catch {
-      await page.waitForSelector('input[type="password"]', { state: 'attached', timeout: 30000 });
+    await page.waitForLoadState('networkidle', { timeout: 45000 }).catch(() => {});
+    console.log('networkidle 完成');
+    const userNameEl = await page.waitForSelector('#TANGRAM__PSP_4__userName', { state: 'attached', timeout: 15000 }).catch(() => null);
+    if (!userNameEl) {
+      // 打印页面状态帮助调试
+      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '').catch(() => '');
+      console.log('页面内容:', bodyText.replace(/\n/g, ' '));
+      throw new Error('登录表单未加载');
     }
     console.log('表单就绪');
 
