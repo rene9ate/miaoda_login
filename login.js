@@ -4,6 +4,9 @@ const path = require('path');
 
 const CACHE_FILE = path.join(__dirname, 'cache', 'cookies.json');
 
+const BCE_LOGIN_URL =
+  'https://login.bce.baidu.com/?redirect=https%3A%2F%2Fconsole.bce.baidu.com%2Fapi%2Fiam%2Foauth2%2Fconnect%3Fclient_id%3Ddb7e162f32a6484a8b0db889b6f37836%26response_type%3Dcode%26redirect_uri%3Dhttps%253A%252F%252Fwww.miaoda.cn%252Foauth2%252Fcallback%252Fiam%253Fredirect_uri%253D%25252F%25253FautoLogin%25253Dfalse%26scope%3Duser_info%26state%3Dfda681e1-ca94-4f11-a0db-48bcd52f2e0f%26from%3Doa_db7e162f32a6484a8b0db889b6f37836%26iam_state%3Dauth&from=oa_db7e162f32a6484a8b0db889b6f37836';
+
 function loadCachedCookies() {
   try {
     if (fs.existsSync(CACHE_FILE)) {
@@ -62,7 +65,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     });
     const page = await context.newPage();
 
-    // —————— Cookie 验证 ——————
+    // —————— Cookie 缓存验证 ——————
     const cached = loadCachedCookies();
     if (cached) {
       await context.addCookies(cached);
@@ -70,7 +73,6 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
       console.log('当前页面:', page.url().slice(0, 80));
 
-      // 验证 Cookie 是否真的有效
       const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
       console.log('页面文字:', pageText.replace(/\n/g, ' '));
       const loggedIn = /退出|注销|我的|个人中心|账户|额度|余额/i.test(pageText);
@@ -82,122 +84,100 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       console.log('Cookie 已过期，重新登录');
     }
 
-    // —————— 登录 ——————
-    console.log('前往 passport.baidu.com 获取表单参数...');
-    await page.goto(
-      'https://passport.baidu.com/v2/?login&u=https://www.miaoda.cn/',
-      { waitUntil: 'load', timeout: 60000 }
-    ).catch(() => {});
+    // —————— BCE OAuth 登录 ——————
+    console.log('前往 BCE 登录页...');
+    await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+    console.log('当前页面:', page.url().slice(0, 80));
 
-    // 等待表单
-    console.log('等待表单...');
+    // 等待表单出现
+    console.log('等待登录表单...');
     try {
-      await page.waitForSelector('#TANGRAM__PSP_3__userName', { state: 'attached', timeout: 60000 });
+      await page.waitForSelector('#TANGRAM__PSP_3__userName', { state: 'attached', timeout: 15000 });
     } catch {
-      throw new Error('表单未加载');
+      // 可能用了不同的 TANGRAM 实例 ID，尝试搜索任何可见输入框
+      await page.waitForSelector('input[type="text"]', { timeout: 15000 });
     }
-    console.log('表单已就绪');
+    console.log('表单就绪');
 
-    // 收集表单全部字段 + 调用 passport 登录 API
-    console.log('调用登录 API...');
-    const loginResult = await page.evaluate(async (creds) => {
-      const id = (name) => `TANGRAM__PSP_3__${name}`;
-      const getVal = (name) => {
-        const el = document.getElementById(id(name));
-        return el ? el.value : '';
+    // 填入用户名密码
+    await page.evaluate(({ username, password }) => {
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(el, val);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       };
 
-      const body = new URLSearchParams({
-        staticPage: getVal('staticPage') || 'https://passport.baidu.com/static/passpc-account/html/v3Jump.html',
-        charset: getVal('charset') || 'utf-8',
-        token: getVal('token') || '',
-        tpl: getVal('tpl') || 'pp',
-        subpro: getVal('subpro') || '',
-        apiver: getVal('apiver') || 'v3',
-        tt: getVal('tt') || String(Date.now()),
-        codestring: getVal('codestring') || '',
-        safeflag: getVal('safeFlag') || '0',
-        isPhone: getVal('isPhone') || 'false',
-        quickUser: getVal('quick_user') || '',
-        logLoginType: getVal('logLoginType') || 'loginLog',
-        idc: getVal('idc') || '',
-        loginMerge: getVal('loginMerge') || '',
-        gid: getVal('gid') || '',
-        u: getVal('u') || '',
-        memPass: 'on',
-        username: creds.username,
-        password: creds.password,
-        loginType: '1',
-        detect: '1',
-        ppui_logintime: String(Date.now()),
-        callback: 'parent.bd__pcbs__' + Date.now(),
-      });
+      // 尝试 TANGRAM 标准 ID
+      let userEl = document.getElementById('TANGRAM__PSP_3__userName');
+      if (!userEl) {
+        // 回退到第一个文本输入框
+        const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+        userEl = inputs[0];
+      }
+      if (userEl) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(userEl, username);
+        userEl.dispatchEvent(new Event('input', { bubbles: true }));
+        userEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
-      const res = await fetch('https://passport.baidu.com/v2/api/?login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-        credentials: 'include',
-      });
+      let passEl = document.getElementById('TANGRAM__PSP_3__password');
+      if (!passEl) {
+        const inputs = document.querySelectorAll('input[type="password"]');
+        passEl = inputs[0];
+      }
+      if (passEl) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(passEl, password);
+        passEl.dispatchEvent(new Event('input', { bubbles: true }));
+        passEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
-      const text = await res.text();
-
-      // 解析 err_no 和 OAuth 跳转 URL
-      let errNo = '';
-      let redirectUrl = '';
-      const errMatch = text.match(/err_no=(\d+)/);
-      if (errMatch) errNo = errMatch[1];
-
-      try {
-        const m = text.match(/bd__pcbs__\d+\((.+)\)/);
-        if (m) {
-          const data = JSON.parse(m[1]);
-          redirectUrl = data?.data?.redirectUrl || data?.data?.u || '';
+      // 勾选协议（勾选包含"秒哒"或"百度"的 checkbox）
+      document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        const label = (cb.closest('label') || {}).innerText || '';
+        const parent = (cb.closest('div,span,p') || {}).innerText || '';
+        const text = label + parent;
+        if (/秒哒|百度|协议|隐私|同意/i.test(text)) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
         }
-      } catch {}
-      if (!redirectUrl) {
-        const m = text.match(/decodeURIComponent\(["']([^"']+)["']\)/);
-        if (m) redirectUrl = decodeURIComponent(m[1]).replace(/\\(.)/g, '$1');
-      }
-      if (!redirectUrl) {
-        const m = text.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
-        if (m) redirectUrl = m[1];
-      }
+      });
+    }, { username: creds.username, password: creds.password });
 
-      return { ok: res.ok, body: text.slice(0, 2000), redirectUrl, errNo };
-    }, creds);
+    // 提交登录
+    console.log('提交登录...');
+    await page.evaluate(() => {
+      const btn = document.getElementById('TANGRAM__PSP_3__submit');
+      if (btn) { btn.click(); return; }
+      const btns = document.querySelectorAll('input[type="submit"], button[type="submit"]');
+      if (btns.length) btns[0].click();
+    });
 
-    console.log('err_no:', loginResult.errNo);
-    console.log('API 响应体:', loginResult.body);
-    console.log('提取的重定向 URL:', loginResult.redirectUrl);
-
-    if (loginResult.errNo === '50052') {
-      throw new Error('账号需绑定手机号，请在浏览器手动登录一次绑定');
-    }
-    if (loginResult.errNo === '50053') {
-      throw new Error('账号需短信验证');
-    }
-    if (!loginResult.ok && !loginResult.redirectUrl) {
-      throw new Error('登录 API 失败');
+    // 等待 OAuth 重定向到 miaoda.cn
+    console.log('等待 OAuth 跳转...');
+    try {
+      await page.waitForURL(url => url.includes('miaoda.cn'), { timeout: 30000 });
+      console.log('跳转成功:', page.url().slice(0, 80));
+    } catch {
+      console.log('当前页面:', page.url().slice(0, 80));
     }
 
-    // 导航到 OAuth 跳转 URL（完成从 passport 到 miaoda 的授权链）
-    const target = loginResult.redirectUrl || 'https://www.miaoda.cn/';
-    console.log('完成 OAuth 跳转到:', target.slice(0, 80));
-    await page.goto(target, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
-    console.log('跳转后 URL:', page.url().slice(0, 80));
+    // 等待 SPA 加载
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
 
-    // 验证登录状态
+    // 验证登录
     const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
     console.log('页面文字:', pageText.replace(/\n/g, ' '));
     const loggedIn = /退出|注销|我的|个人中心|账户|额度|余额/i.test(pageText);
 
     if (!loggedIn) {
-      const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
-      console.log('页面文字:', pageText.replace(/\n/g, ' '));
       throw new Error('登录验证失败');
     }
-    console.log('登录验证通过');
+    console.log('登录成功');
 
     const cookies = await context.cookies();
     saveCookies(cookies);
