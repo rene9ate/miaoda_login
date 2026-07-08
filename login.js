@@ -70,14 +70,10 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
       console.log('当前页面:', page.url().slice(0, 80));
 
-      // 验证 Cookie 是否真的有效：尝试导航到需要认证的页面
-      const loggedIn = await page.evaluate(() => {
-        const text = document.body?.innerText?.slice(0, 500) || '';
-        // 如果有登录/注册按钮但无用户相关文字，则未登录
-        const hasLoginBtn = /登录|注册|sign.?in/i.test(text);
-        const hasUserInfo = /退出|注销|我的|个人中心|账户|额度|余额/i.test(text);
-        return hasUserInfo || !hasLoginBtn;
-      }).catch(() => false);
+      // 验证 Cookie 是否真的有效
+      const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
+      console.log('页面文字:', pageText.replace(/\n/g, ' '));
+      const loggedIn = /退出|注销|我的|个人中心|账户|额度|余额/i.test(pageText);
 
       if (loggedIn) {
         console.log('Cookie 有效，已登录');
@@ -164,10 +160,11 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
         if (m) redirectUrl = m[1];
       }
 
-      return { ok: res.ok, body: text.slice(0, 500), redirectUrl };
+      return { ok: res.ok, body: text.slice(0, 2000), redirectUrl };
     }, creds);
 
-    console.log('API 响应:', loginResult.body);
+    console.log('API 响应体:', loginResult.body);
+    console.log('提取的重定向 URL:', loginResult.redirectUrl);
     if (!loginResult.ok && !loginResult.redirectUrl) {
       throw new Error('登录 API 失败');
     }
@@ -179,13 +176,14 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     console.log('当前页面:', page.url().slice(0, 80));
 
     // 验证登录状态
-    const loggedIn = await page.evaluate(() => {
-      const text = document.body?.innerText?.slice(0, 500) || '';
-      return /退出|注销|我的|个人中心|账户|额度|余额/i.test(text);
-    }).catch(() => false);
+    const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
+    console.log('页面文字:', pageText.replace(/\n/g, ' '));
+    const loggedIn = /退出|注销|我的|个人中心|账户|额度|余额/i.test(pageText);
 
     if (!loggedIn) {
-      throw new Error('登录验证失败：未检测到已登录状态');
+      const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
+      console.log('页面文字:', pageText.replace(/\n/g, ' '));
+      throw new Error('登录验证失败');
     }
     console.log('登录验证通过');
 
