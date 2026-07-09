@@ -127,18 +127,35 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       if (cb) cb.checked = true;
     }, { username: creds.username, password: creds.password });
 
-    // 修改表单 action 指向 passport API 后提交
+    // 用 fetch 模拟 TANGRAM XHR 登录调用
     console.log('提交登录...');
-    await page.evaluate(() => {
+    const loginResult = await page.evaluate(async () => {
       const form = document.getElementById('TANGRAM__PSP_4__form');
-      if (form) {
-        form.action = 'https://passport.baidu.com/v2/api/?login';
-        form.method = 'POST';
-        form.submit();
+      if (!form) return { error: 'form not found' };
+      const fd = new FormData(form);
+      try {
+        const res = await fetch('https://passport.baidu.com/v2/api/?login', {
+          method: 'POST', body: fd,
+        });
+        return await res.json();
+      } catch (e) {
+        return { error: e.message };
       }
     });
+    console.log('登录 API 响应:', JSON.stringify(loginResult));
 
-    // 等待 OAuth 重定向到 miaoda.cn
+    if (loginResult.err_no !== 0) {
+      throw new Error(`登录失败: err_no=${loginResult.err_no} ${loginResult.msg || ''}`);
+    }
+
+    // 处理 OAuth 重定向
+    const forwardUrl = loginResult.data?.forward || loginResult.data?.redirectUri;
+    if (forwardUrl) {
+      console.log('跟随重定向...');
+      await page.goto(forwardUrl, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+    }
+
+    // 等待跳转到 miaoda.cn
     console.log('等待 OAuth 跳转...');
     try {
       await page.waitForURL(url => url.includes('miaoda.cn'), { timeout: 30000 });
