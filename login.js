@@ -50,13 +50,16 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
 
 (async () => {
   try {
-    const key = process.env.LOGIN_KEY || process.argv[2];
+    const isDebug = process.argv.includes('--debug') || process.argv.includes('-D');
+    const keyArg = process.argv.find(a => !a.startsWith('-') && a.includes(':'));
+    const key = process.env.LOGIN_KEY || keyArg;
     if (!key) throw new Error('请设置 LOGIN_KEY 环境变量');
     const creds = parseKey(key);
     if (!creds) throw new Error('LOGIN_KEY 格式: user:pass');
 
     browser = await chromium.launch({
-      headless: true,
+      headless: !isDebug,
+      slowMo: isDebug ? 500 : 0,
       args: [
         '--no-sandbox', '--disable-setuid-sandbox',
         '--disable-blink-features=AutomationControlled',
