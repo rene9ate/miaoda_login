@@ -112,17 +112,6 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单就绪');
 
-    // 切换到"账号登录" tab（默认可能是短信登录）
-    await page.evaluate(() => {
-      // 找可见的"账号登录"文字
-      for (const el of document.querySelectorAll('a, span, div, button, p')) {
-        if (el.offsetParent !== null && el.innerText?.trim() === '账号登录') {
-          el.click(); return;
-        }
-      }
-    });
-    await page.waitForTimeout(500);
-
     // 填入用户名密码
     await page.evaluate(({ username, password }) => {
       const setVal = (id, val) => {
@@ -136,33 +125,39 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       setVal('TANGRAM__PSP_4__password', password);
     }, { username: creds.username, password: creds.password });
 
-    // 点击勾选框（触发 TANGRAM 启用 submit）
-    await page.evaluate(() => {
-      const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
-      if (cb) cb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    // 找出 TANGRAM 所有相关按钮元素
+    const btns = await page.evaluate(() => {
+      const results = [];
+      // 所有元素（排除 script/style）
+      const all = document.querySelectorAll('*:not(script):not(style)');
+      for (const el of all) {
+        const text = (el.innerText || '').trim();
+        if (text !== '登录') continue;
+        const rect = el.getBoundingClientRect();
+        const visible = el.offsetParent !== null;
+        results.push({
+          tag: el.tagName, id: el.id, cls: el.className,
+          visible, w: rect.width, h: rect.height,
+        });
+      }
+      return results;
     });
-    await page.waitForTimeout(300);
+    console.log('登录按钮:', JSON.stringify(btns));
 
-    // 提交登录
+    // 点击可见的提交按钮
     console.log('提交登录...');
     const clicked = await page.evaluate(() => {
-      // 先尝试可见的样式按钮
-      const visibleBtns = document.querySelectorAll('[class*="pass-button"], [class*="submit"], button, a');
-      for (const btn of visibleBtns) {
-        if (btn.offsetParent !== null && btn.innerText?.trim() === '登录') {
-          btn.click();
-          return 'visible';
+      // 点第一个可见的 "登录" 按钮
+      for (const sel of ['a', 'span', 'div', 'button', 'p', 'h1', 'h2', 'h3']) {
+        for (const el of document.querySelectorAll(sel)) {
+          if (el.offsetParent !== null && el.innerText?.trim() === '登录') {
+            el.click(); return { tag: el.tagName, id: el.id, cls: el.className };
+          }
         }
       }
-      // 兜底：点隐藏的 submit input（需要已启用）
-      const hidden = document.getElementById('TANGRAM__PSP_4__submit');
-      if (hidden && !hidden.disabled) {
-        hidden.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        return 'hidden';
-      }
-      return 'none';
+      return null;
     });
-    console.log('点击方式:', clicked);
+    console.log('点击了:', JSON.stringify(clicked));
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
