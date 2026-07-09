@@ -91,23 +91,38 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     // —————— BCE 登录 ——————
     console.log('前往 BCE 登录页...');
     await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
-    console.log('当前页面:', page.url().slice(0, 80));
+    console.log('当前页面(完整):', page.url());
 
     // 等待表单（BCE 页面 TANGRAM 可能加载慢，重试 3 次）
     console.log('等待登录表单...');
     let formReady = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
-      await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: 45000 }).catch(() => {});
+      // 检查 TANGRAM 表单是否存在
       const hasForm = await page.$('#TANGRAM__PSP_4__userName');
       if (hasForm) { formReady = true; break; }
+      // 调试：检查页面内容
+      const info = await page.evaluate(() => ({
+        url: location.href,
+        title: document.title,
+        html: (document.querySelector('#TANGRAM__PSP_4__form')?.outerHTML || 'NO_TANGRAM_FORM').slice(0, 300),
+        text: (document.body?.innerText || '').slice(0, 300),
+      }));
+      console.log(`调试 [${attempt}/3]: title="${info.title}" text="${info.text.replace(/\n/g, ' ')}"`);
+      console.log(`调试 [${attempt}/3]: TANGRAM HTML: ${info.html.slice(0, 200)}`);
       if (attempt < 3) {
         console.log(`表单未就绪 (尝试 ${attempt}/3)，重新加载...`);
-        await page.goto(BCE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
       }
     }
     if (!formReady) {
-      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
-      console.log('页面内容:', bodyText.replace(/\n/g, ' '));
+      const bodyHtml = await page.evaluate(() => {
+        const scripts = [...document.querySelectorAll('script')].map(s => (s.src || 'inline') + ' ' + (s.id || '')).join(' | ');
+        const links = [...document.querySelectorAll('link')].map(l => l.href).join(' | ');
+        return { scripts, links };
+      }).catch(() => ({}));
+      console.log('页面脚本:', bodyHtml.scripts?.slice(0, 500));
+      console.log('页面样式:', bodyHtml.links?.slice(0, 500));
       throw new Error('登录表单未加载（BCE CDN 可能不可达）');
     }
     console.log('表单就绪');
