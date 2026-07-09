@@ -181,40 +181,28 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       if (cb) cb.checked = true;
     }, { username: creds.username, password: creds.password });
 
-    // 用 XHR 模拟 TANGRAM 登录调用
+    // 触发 TANGRAM 提交按钮点击（让 TANGRAM JS 处理完整的提交流程）
     console.log('提交登录...');
     const loginResult = await page.evaluate(async () => {
-      const form = document.getElementById('TANGRAM__PSP_4__form');
-      if (!form) return { error: 'form not found' };
-      const fd = new FormData(form);
-      const fieldNames = [...fd.keys()];
-      console.log('表单字段:', fieldNames.join(', '));
-      try {
-        const res = await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', 'https://passport.baidu.com/v2/api/?login');
-          xhr.withCredentials = true;
-          xhr.onload = () => resolve(xhr);
-          xhr.onerror = () => reject(new Error('xhr error'));
-          xhr.send(fd);
-        });
-        return JSON.parse(res.responseText);
-      } catch (e) {
-        return { error: e.message };
+      // 方案 A：找 submit 按钮并 click
+      const btn = document.getElementById('TANGRAM__PSP_4__submit');
+      if (btn) {
+        btn.click();
+        return { method: 'btn.click', ok: true };
       }
+      // 方案 B：form.requestSubmit
+      const form = document.getElementById('TANGRAM__PSP_4__form');
+      if (form) {
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+          return { method: 'requestSubmit', ok: true };
+        }
+        form.submit();
+        return { method: 'form.submit', ok: true };
+      }
+      return { error: 'form not found' };
     });
-    console.log('登录 API 响应:', JSON.stringify(loginResult));
-
-    if (loginResult.err_no !== 0) {
-      throw new Error(`登录失败: err_no=${loginResult.err_no} ${loginResult.msg || ''}`);
-    }
-
-    // 处理 OAuth 重定向
-    const forwardUrl = loginResult.data?.forward || loginResult.data?.redirectUri;
-    if (forwardUrl) {
-      console.log('跟随重定向...');
-      await page.goto(forwardUrl, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
-    }
+    console.log('提交结果:', JSON.stringify(loginResult));
 
     // 等待跳转到 miaoda.cn
     console.log('等待 OAuth 跳转...');
