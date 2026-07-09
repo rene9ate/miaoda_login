@@ -142,17 +142,25 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       if (cb) cb.checked = true;
     }, { username: creds.username, password: creds.password });
 
-    // 用 fetch 模拟 TANGRAM XHR 登录调用
+    // 用 XHR 模拟 TANGRAM 登录调用
     console.log('提交登录...');
     const loginResult = await page.evaluate(async () => {
       const form = document.getElementById('TANGRAM__PSP_4__form');
       if (!form) return { error: 'form not found' };
       const fd = new FormData(form);
+      // 打印表单字段（不打印密码）
+      const fields = [...fd.entries()].map(([k]) => k).join(', ');
+      console.log('表单字段:', fields);
       try {
-        const res = await fetch('https://passport.baidu.com/v2/api/?login', {
-          method: 'POST', body: fd,
+        const res = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', 'https://passport.baidu.com/v2/api/?login');
+          xhr.withCredentials = true;
+          xhr.onload = () => resolve(xhr);
+          xhr.onerror = () => reject(new Error('xhr error'));
+          xhr.send(fd);
         });
-        return await res.json();
+        return JSON.parse(res.responseText);
       } catch (e) {
         return { error: e.message };
       }
