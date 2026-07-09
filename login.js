@@ -90,9 +90,37 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       console.log('Cookie 已过期，重新登录');
     }
 
-    // —————— BCE 登录 ——————
-    console.log('前往 BCE 登录页...');
-    await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+    // —————— 从 miaoda.cn 触发 OAuth 登录 ——————
+    console.log('前往 miaoda.cn 触发登录...');
+    await page.goto('https://www.miaoda.cn/', { waitUntil: 'load', timeout: 30000 }).catch(() => {});
+    console.log('当前页面:', page.url().slice(0, 80));
+
+    // 找登录按钮：包含"登录"文字且可见的元素
+    const btnClicked = await page.evaluate(() => {
+      // 搜索所有可见元素，innerText 包含"登录"
+      const all = document.querySelectorAll('a,button,span,div,li,p');
+      for (const el of all) {
+        const text = (el.innerText || '').trim();
+        if (text === '登录' || text === ' 登录' || text.endsWith('登录')) {
+          if (el.offsetParent !== null && el.getBoundingClientRect().width > 0) {
+            el.click();
+            return el.tagName + '#' + (el.id || '') + '.' + (el.className || '');
+          }
+        }
+      }
+      return null;
+    });
+    console.log('点击的登录按钮:', btnClicked);
+
+    // 等待重定向到 login.bce.baidu.com
+    console.log('等待 OAuth 跳转到 BCE...');
+    try {
+      await page.waitForURL(url => url.includes('login.bce.baidu.com'), { timeout: 15000 });
+    } catch {
+      console.log('未跳转到 BCE，当前页面:', page.url().slice(0, 80));
+      // 如果没跳转，可能是按钮没找到，直接导航
+      await page.goto(BCE_LOGIN_URL, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+    }
     console.log('当前页面(完整):', page.url());
 
     // 等待表单（BCE 页面 TANGRAM 可能加载慢，重试 3 次）
