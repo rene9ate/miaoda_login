@@ -112,69 +112,45 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单就绪');
 
-    // 收集表单字段
-    const formData = await page.evaluate(() => {
-      const id = (name) => `TANGRAM__PSP_4__${name}`;
-      const getVal = (name) => {
-        const el = document.getElementById(id(name));
-        return el ? el.value : '';
+    // 填入用户名密码
+    await page.evaluate(({ username, password }) => {
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(el, val);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
       };
-      return {
-        staticPage: getVal('staticPage') || 'https://login.bce.baidu.com/static/passpc-account/html/v3Jump.html',
-        charset: 'utf-8',
-        token: getVal('token') || '',
-        tpl: getVal('tpl') || 'pp',
-        subpro: getVal('subpro') || '',
-        apiver: getVal('apiver') || 'v3',
-        tt: getVal('tt') || String(Date.now()),
-        codestring: getVal('codeString') || '',
-        safeflag: getVal('safeFlag') || '0',
-        isPhone: getVal('isPhone') || 'false',
-        quickUser: getVal('quick_user') || '',
-        logLoginType: getVal('logLoginType') || 'pc_loginBasic',
-        idc: getVal('idc') || '',
-        loginMerge: getVal('loginMerge') || 'true',
-        gid: getVal('gid') || '',
-        u: getVal('u') || '',
-        memPass: 'on',
-        loginType: '1',
-        detect: getVal('detect') || '1',
-        ppui_logintime: String(Date.now()),
-        callback: 'parent.bd__pcbs__' + Date.now(),
-      };
-    });
+      setVal('TANGRAM__PSP_4__userName', username);
+      setVal('TANGRAM__PSP_4__password', password);
+    }, { username: creds.username, password: creds.password });
 
-    // 通过 Playwright 服务端 API 发起请求（绕过浏览器 CORS）
+    // 找出 TANGRAM 所有相关按钮元素
+    const btns = await page.evaluate(() => {
+      const els = document.querySelectorAll('[class*="pass-button"], [class*="submit"], button, a, .pass-button');
+      return Array.from(els).map(el => ({
+        tag: el.tagName, id: el.id, cls: el.className,
+        visible: el.offsetParent !== null,
+        text: (el.innerText || el.value || '').trim().slice(0, 20),
+        w: el.offsetWidth, h: el.offsetHeight,
+      })).filter(b => b.visible || b.cls.includes('submit'));
+    });
+    console.log('按钮:', JSON.stringify(btns));
+
+    // 点击可见的提交按钮
     console.log('提交登录...');
-    const body = new URLSearchParams({ ...formData, username: creds.username, password: creds.password });
-    const apiRes = await page.request.post('https://passport.baidu.com/v2/api/?login', {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
+    const clicked = await page.evaluate(() => {
+      // 点第一个可见的 "登录" 按钮
+      for (const sel of ['a', 'span', 'div', 'button', 'p', 'h1', 'h2', 'h3']) {
+        for (const el of document.querySelectorAll(sel)) {
+          if (el.offsetParent !== null && el.innerText?.trim() === '登录') {
+            el.click(); return { tag: el.tagName, id: el.id, cls: el.className };
+          }
+        }
+      }
+      return null;
     });
-    const text = await apiRes.text();
-
-    let errNo = '';
-    const errMatch = text.match(/err_no=(\d+)/);
-    if (errMatch) errNo = errMatch[1];
-    console.log('err_no:', errNo);
-
-    let redirectUrl = '';
-    try {
-      const m = text.match(/decodeURIComponent\(["']([^"']+)["']\)/);
-      if (m) redirectUrl = decodeURIComponent(m[1]).replace(/\\(.)/g, '$1');
-    } catch {}
-    if (!redirectUrl) {
-      const m = text.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
-      if (m) redirectUrl = m[1];
-    }
-    console.log('重定向 URL:', redirectUrl?.slice(0, 100));
-
-    if (errNo === '50052') throw new Error('账号需绑定手机号');
-    if (!redirectUrl) throw new Error('未获取到跳转 URL');
-
-    console.log('跳转到...');
-    await page.goto(redirectUrl, { waitUntil: 'load', timeout: 30000 }).catch(() => {});
-    console.log('跳转后 URL:', page.url().slice(0, 80));
+    console.log('点击了:', JSON.stringify(clicked));
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
