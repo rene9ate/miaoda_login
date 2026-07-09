@@ -68,6 +68,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       viewport: { width: 1280, height: 800 },
     });
     const page = await context.newPage();
+    page.on('console', msg => console.log('PAGE:', msg.text()));
 
     // —————— Cookie 缓存验证 ——————
     const cached = loadCachedCookies();
@@ -148,9 +149,8 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       const form = document.getElementById('TANGRAM__PSP_4__form');
       if (!form) return { error: 'form not found' };
       const fd = new FormData(form);
-      // 打印表单字段（不打印密码）
-      const fields = [...fd.entries()].map(([k]) => k).join(', ');
-      console.log('表单字段:', fields);
+      const fieldNames = [...fd.keys()];
+      console.log('表单字段:', fieldNames.join(', '));
       try {
         const res = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
