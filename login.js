@@ -61,6 +61,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       args: [
         '--no-sandbox', '--disable-setuid-sandbox',
         '--disable-blink-features=AutomationControlled',
+        '--disable-features=DocumentWriteBlock',
       ],
     });
     const context = await browser.newContext({
@@ -117,13 +118,22 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       }
     }
     if (!formReady) {
-      const bodyHtml = await page.evaluate(() => {
-        const scripts = [...document.querySelectorAll('script')].map(s => (s.src || 'inline') + ' ' + (s.id || '')).join(' | ');
-        const links = [...document.querySelectorAll('link')].map(l => l.href).join(' | ');
-        return { scripts, links };
+      const info = await page.evaluate(() => {
+        const html = document.documentElement?.outerHTML?.slice(0, 5000) || 'NO_HTML';
+        const allInputs = [...document.querySelectorAll('input,button,form')].map(el => {
+          const rect = el.getBoundingClientRect();
+          return {
+            tag: el.tagName, id: el.id, name: el.name || el.getAttribute('name'),
+            type: el.type, value: el.value?.slice(0, 50), class: el.className,
+            visible: el.offsetParent !== null,
+            w: Math.round(rect.width), h: Math.round(rect.height),
+            placeholder: el.getAttribute('placeholder') || '',
+          };
+        });
+        return { html: html.slice(0, 3000), inputs: allInputs.slice(0, 50) };
       }).catch(() => ({}));
-      console.log('页面脚本:', bodyHtml.scripts?.slice(0, 500));
-      console.log('页面样式:', bodyHtml.links?.slice(0, 500));
+      console.log('页面 HTML 片段:', info.html?.slice(0, 1000));
+      console.log('页面 inputs/forms:', JSON.stringify(info.inputs));
       throw new Error('登录表单未加载（BCE CDN 可能不可达）');
     }
     console.log('表单就绪');
