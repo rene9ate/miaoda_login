@@ -112,7 +112,7 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
     }
     console.log('表单就绪');
 
-    // 填入用户名密码
+    // 填入用户名密码 + 勾选协议
     await page.evaluate(({ username, password }) => {
       const setVal = (id, val) => {
         const el = document.getElementById(id);
@@ -123,41 +123,20 @@ process.on('SIGTERM', async () => { await cleanup(); process.exit(143); });
       };
       setVal('TANGRAM__PSP_4__userName', username);
       setVal('TANGRAM__PSP_4__password', password);
+      const cb = document.getElementById('TANGRAM__PSP_4__isAgree');
+      if (cb) cb.checked = true;
     }, { username: creds.username, password: creds.password });
 
-    // 找出 TANGRAM 所有相关按钮元素
-    const btns = await page.evaluate(() => {
-      const results = [];
-      // 所有元素（排除 script/style）
-      const all = document.querySelectorAll('*:not(script):not(style)');
-      for (const el of all) {
-        const text = (el.innerText || '').trim();
-        if (text !== '登录') continue;
-        const rect = el.getBoundingClientRect();
-        const visible = el.offsetParent !== null;
-        results.push({
-          tag: el.tagName, id: el.id, cls: el.className,
-          visible, w: rect.width, h: rect.height,
-        });
-      }
-      return results;
-    });
-    console.log('登录按钮:', JSON.stringify(btns));
-
-    // 点击可见的提交按钮
+    // 修改表单 action 指向 passport API 后提交
     console.log('提交登录...');
-    const clicked = await page.evaluate(() => {
-      // 点第一个可见的 "登录" 按钮
-      for (const sel of ['a', 'span', 'div', 'button', 'p', 'h1', 'h2', 'h3']) {
-        for (const el of document.querySelectorAll(sel)) {
-          if (el.offsetParent !== null && el.innerText?.trim() === '登录') {
-            el.click(); return { tag: el.tagName, id: el.id, cls: el.className };
-          }
-        }
+    await page.evaluate(() => {
+      const form = document.getElementById('TANGRAM__PSP_4__form');
+      if (form) {
+        form.action = 'https://passport.baidu.com/v2/api/?login';
+        form.method = 'POST';
+        form.submit();
       }
-      return null;
     });
-    console.log('点击了:', JSON.stringify(clicked));
 
     // 等待 OAuth 重定向到 miaoda.cn
     console.log('等待 OAuth 跳转...');
