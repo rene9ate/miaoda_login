@@ -1,11 +1,6 @@
 name: 一键登录
 
 on:
-  schedule:
-    # 北京时间 08:00 = UTC 00:00
-    - cron: '0 0 * * *'
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       login_key:
