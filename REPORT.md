@@ -60,7 +60,7 @@ BCE 登录页在不同时间返回了不同的版本：
 
 ### 6. 极验（滑动验证码）
 
-最终障碍：BCE 登录页在密码验证后会触发**滑动验证码（极验）**，Playwright 无法自动通过。这是项目终止的直接原因。
+BCE 登录页在密码验证后会触发**滑动验证码（极验）**，Playwright 无法自动通过。这是项目终止的直接原因。
 
 ### 7. Playwright 反检测
 
@@ -72,20 +72,25 @@ BCE 登录页在不同时间返回了不同的版本：
 - `workflow_dispatch` 支持手动输入凭据调试
 - `--debug` 参数切换有头模式 + `slowMo` 500ms 本地观察
 
-## 失败总结
+## 困难与投入
 
-| 阶段 | 问题 | 状态 |
-|------|------|------|
-| TANGRAM 表单加载 | CDN 在 GHA 超时，表单不渲染 | 部分解决（重试 3 次） |
-| TANGRAM 表单填充 | 原生 input 隐藏，Playwright fill() 不可用 | 解决（page.evaluate 设值） |
-| 提交登录 | CORS 阻止 XHR，form.submit() 返回 JSON | 未完全解决 |
-| 极验 | 滑动验证码无法自动化 | ❌ 不可逾越 |
-| CAS 新页面 | 表单 ID 不同 | 未解决 |
+| 阶段 | 问题 | 处理结果 |
+|------|------|----------|
+| TANGRAM 表单加载 | CDN 在 GHA 超时，表单不渲染 | 重试 3 次后部分缓解 |
+| TANGRAM 表单填充 | 原生 input 隐藏，Playwright fill() 不可用 | 改用 page.evaluate 设值 + 触发事件 |
+| 提交登录 | CORS 阻止 XHR，form.submit() 返回 JSON | 需要更复杂的提交策略 |
+| 极验 | 滑动验证码需要打码平台介入 | 成本高，不值得继续 |
+| CAS 新页面 | 表单 ID 不同，页面版本不稳定 | 需要持续维护选择器 |
 
-## 改进建议
+## 可借鉴的经验
 
-1. **验证码方案** — 如果一定要自动化，需要接入打码平台（如 2captcha），但极验价格较高
-2. **替代登录方式** — 检查秒搭是否提供 token/session 续期 API（不需要验证码）
-3. **本地 Puppeteer/Playwright + 真实浏览器指纹** — 使用 undetected-chromedriver 或 playwright-stealth 插件降低被检测概率
-4. **Selenium + 浏览器扩展** — 通过扩展注入绕过一些检测，但对极验仍然无效
-5. **puppeteer-extra-plugin-stealth** — 比手动 `addInitScript` 更全面，但依然无法过极验
+1. **OAuth 流程不要绕过** — 浏览器整页导航比 XHR 更接近真实用户，且不受 CORS 限制
+2. **CDN 问题是 GHA 常态** — 国内 CDN 在 GitHub Actions 中不稳定，需要重试 + 路由兜底
+3. **反检测可以做** — `addInitScript` + 伪造 `webdriver`/`plugins`/`languages` 能过基础检测
+4. **Playwright 调试模式** — `--debug` 切换有头 + slowMo 对本地排查卡点很有用
+
+## 如果继续
+
+1. **打码平台** — 接入 2captcha/超级鹰 处理极验，但成本 > 收益（每天几毛钱的秒点）
+2. **替代登录** — 检查秒哒是否提供 token 续期或 API Key 方式（不需要浏览器）
+3. **本地跑 + 定时** — 在自己电脑上跑，避免 GHA 的 CDN 和 IP 问题，但极验仍然存在
